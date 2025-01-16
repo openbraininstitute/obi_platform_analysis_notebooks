@@ -1,12 +1,4 @@
 {
-    "emodel_folder": "emodel",
-    "hoc_file": "model.hoc",
-    "morph_file": "cylindrical_morphology_19.1399.asc",
-    "mechanisms_folder": "mechanisms",
-    "threshold_current": 0.08304913631110189,
-    "holding_current": -0.0640625,
-    "emodel_name": "cADpyr",
-    "description": "whole cADpyr placeholder emodel with morphology and mechanisms",
     "input": [
         {
             "data_type": {
