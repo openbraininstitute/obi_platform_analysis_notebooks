@@ -1,0 +1,15 @@
+{
+    "type": "notebook",
+    "input": [
+        {
+            "data_type": {
+                "artefact": "circuit",
+                "required_properties": [
+                ]
+            },
+            "class": "single"
+        }
+    ],
+    "requirements": [
+    ]
+}
