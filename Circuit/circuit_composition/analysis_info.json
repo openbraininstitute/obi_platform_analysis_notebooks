@@ -14,6 +14,8 @@
         "bluepysnap>=3.0.1",
         "matplotlib>=3.7.1",
         "ipywidgets>=8.1.0",
-        "plotly>=5.0.0"
+        "plotly>=5.0.0",
+        "nbformat>=4.2.0",
+        "jupyter>=1.1.0"
     ]
 }
