@@ -8,6 +8,7 @@
             "class": "list"
         }
     ],
+    "requires-python": ">=3.9,<3.13",
     "requirements": [
         "bluecellulab>=2.6.39",
         "bluepyemodel>=1.0.32",
