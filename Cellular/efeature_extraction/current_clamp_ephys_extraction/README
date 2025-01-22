@@ -1,0 +1,7 @@
+# README
+
+## Extracting electrical features (e-features) from electrophysiology data
+
+- Here we show how to use [eFEL](https://github.com/openbraininstitute/eFEL) extract e-features from the whole cell patch clamp electrophysiology data. 
+- The data is in nwb format.
+- Users can use various [electrical features](https://efel.readthedocs.io/en/latest/eFeatures.html)

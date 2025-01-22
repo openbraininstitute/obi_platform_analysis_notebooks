@@ -1,0 +1,17 @@
+{
+    "input": [
+        {
+            "data_type": {
+                "artefact": ["emodel-template", "asc/swc morphology", "mechanisms"],
+                "required_properties": []
+            },
+            "class": "list"
+        }
+    ],
+    "requires-python": ">=3.9,<3.13",
+    "requirements": [
+        "neuron>=8.2.6",
+        "LFPy>=2.3.4",
+        "matplotlib=3.10.0"
+    ]
+}
