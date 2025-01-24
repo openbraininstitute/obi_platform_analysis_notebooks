@@ -1,0 +1,20 @@
+{
+    "type": "notebook",
+    "language": "python",
+    "input": [
+        {
+            "data_type": {
+                "artefact": "morphology",
+                "required_properties": []
+            },
+            "class": "list"
+        }
+    ],
+    "requirements": [
+        "pandas>=2.0.1",
+        "neurom>=3.2.2",
+        "requests>=2.31.0",
+        "ipywidgets>=8.1.0",
+        "matplotlib>=3.7.1"
+    ]
+}
