@@ -7,6 +7,7 @@ The folder has been divided into 3 main subfolders, each corresponding to the le
 
 - **Cellular**
   - [**display_morphology_population_features**](Cellular/display_morphology_population_features/analysis_notebook.ipynb): Plot morphological features for a population of morphologies
+  - [**morphology_quality_check**](Cellular/morphology_quality_check/analysis_notebook.ipynb): To tests a list of morphologies against some common issues that may cause issues with tools and analyses using the morphologies.
   - **efeature_extraction**
     - [**current_clamp_ephys_extraction**](Cellular/efeature_extraction/current_clamp_ephys_extraction/analysis_notebook.ipynb): Extraction e-features from voltage clamp experiments for analysing the firing behaviour of neurons, AP properties, subthreshold and suprathreshold voltage properties
     - [**voltage_clamp_ephys_extraction**](Cellular/efeature_extraction/voltage_clamp_ephys_extraction/analysis_notebook.ipynb): Extraction e-features from whole cell patch voltage clamp data. Use for ion channel model building.
