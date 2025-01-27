@@ -1,0 +1,18 @@
+{
+    "input": [
+        {
+            "data_type": {
+                "artefact": ["emodel-template", "morphology", "mechanisms"],
+                "required_properties": []
+            },
+            "class": "list"
+        }
+    ],
+    "requires-python": ">=3.9,<3.13",
+    "requirements": [
+        "bluecellulab>=2.6.39",
+        "bluepyemodel>=1.0.32",
+        "numpy>=1.24.3",
+        "matplotlib>=3.7.1"
+    ]
+}
