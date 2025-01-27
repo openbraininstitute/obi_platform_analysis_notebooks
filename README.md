@@ -17,8 +17,12 @@ The folder has been divided into 3 main subfolders, each corresponding to the le
         - [**LFPy_active_synapse**](Cellular/emodels/lfpy_simulations/active_emodel_synapses/analysis_notebook.ipynb): Running an OBP active e-model with a synapse activation
         - [**LFPy_passive_synapse_1**](Cellular/emodels/lfpy_simulations/passive_emodel_synapses/analysis_notebook_1.ipynb): Running a passive OBP e-model with a synapse activation: Plot LFP Heatmap
         - [**LFPy_passive_synapse_2**](Cellular/emodels/lfpy_simulations/passive_emodel_synapses/analysis_notebook_2.ipynb): Running a passive OBP e-model with a synapse activation: Plot Local Field
-        
+    - [**single_cell_currentscape_analysis**](Cellular/single_cell_currentscape_analysis/analysis_notebook.ipynb): Currentscape analysis of single cells
+    - [**single_cell_impedance_analysis**](Cellular/single_cell_impedance_analysis/analysis_notebook.ipynb): Impedance analysis of single cells
         
 - **Circuit**
-
+  - [**adjacency_matrix**](Circuit/adjacency_matrix/analysis_notebook.ipynb): extracts and visualize the connectivity between all pairs of pre- and post-synaptic neurons
+  - [**circuit_composition**](Circuit/circuit_composition/analysis_notebook.ipynb): displays the composition of a circuit model with respect to user-selected neuron properties, such as morphological types, electrical types, etc.
+  - [**connectivity_matrix**](Circuit/connectivity_matrix/analysis_notebook.ipynb):  extracts and visualizes a matrix of connection probabilities or #synapses per connection (mean/std/...), grouped by a selected neuron property (layer, m-type, ...).
+ 
 - **System**

@@ -18,11 +18,11 @@ Notebook to compare final parameter values for different sections such as apical
     e-model score (sum of e-feature z-scores) 
     - validate the model
 - The pipeline store the final e-model details in a json file (EM__*.json) containing details such as
-- 'fitness'  : the e-model score (sum of e-feature z-scores)
-- 'parameter': the hall of fame (best) parameters values which are were selected for different sections of the detailed morphology.  
-- 'score'    : individual e-feature z-scores
-- 'features' : individual e-feature absolute values
-- 'scoreValidation' : validation score
-- 'passedValidation'(bool) : passed or failed validation
-- 'seed' : selected seed value from the multiple optimisation runs
+- `fitness`  : the e-model score (sum of e-feature z-scores)
+- `parameter`: the hall of fame (best) parameters values which are were selected for different sections of the detailed morphology.  
+- `score`    : individual e-feature z-scores
+- `features` : individual e-feature absolute values
+- `scoreValidation` : validation score
+- `passedValidation`(bool) : passed or failed validation
+- `seed` : selected seed value from the multiple optimisation runs
 
