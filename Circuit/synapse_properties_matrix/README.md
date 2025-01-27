@@ -13,5 +13,4 @@ After loading a [SONATA](https://github.com/AllenInstitute/sonata/blob/master/do
 
 As a next step, the user can optionally select a pre- and post-synaptic _node set_ which is a conceptual group of neurons defined in the circuit's [_node sets file_](https://github.com/AllenInstitute/sonata/blob/master/docs/SONATA_DEVELOPER_GUIDE.md#node-sets-file). 
 
-TBA...
- <!-- Finally, the user can select a neuron property (e.g., layer, m-type, etc.) based on which to group the pre- and post-synaptic neurons, and the respective connectivity matrix between all pairs of groups will be extracted. For visualization, the type of connectivity matrix (connection probability or mean/std/... #synapses per connection), and whether or not to display empty groups (i.e., groups w/o any neurons or connections), can be selected interactively. -->
+Finally, the user can select a neuron property (e.g., layer, m-type, etc.) based on which to group the pre- and post-synaptic neurons, and the respective properties matrix between all pairs of groups will be extracted. Optionally, the user can choose which grouping function to use for computing a matrix entry from a group of values (default: mean). For visualization, the (physiological) synapse property of interest, and whether or not to display empty groups (i.e., groups w/o any neurons or connections), can be selected interactively.
