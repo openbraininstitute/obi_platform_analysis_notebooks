@@ -26,6 +26,7 @@
             "Plots==1.31.1",
             "JSON",
 	    "BenchmarkTools",
-	    "IJulia"
+	    "IJulia",
+	    "Interact"
     ]
 }
