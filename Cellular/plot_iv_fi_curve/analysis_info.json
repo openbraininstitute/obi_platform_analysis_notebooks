@@ -9,7 +9,9 @@
             "class": "list"
         }
     ],
+    "requires-python": ">=3.9,<3.13",
     "requirements": [
-        "bluecellulab"
+        "bluecellulab>=2.6.36",
+        "NEURON>=8.0.2,<9.0.0"
     ]
 }
