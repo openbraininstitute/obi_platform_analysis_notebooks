@@ -3,7 +3,7 @@
     "input": [
         {
             "data_type": {
-                "artefact": "cell",
+                "artefact": ["emodel-template", "asc/swc morphology", "mechanisms"],
                 "required_properties": []
             },
             "class": "list"
