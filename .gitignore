@@ -12,3 +12,5 @@ arm64/
 Cellular/emodels/cadpyr_emodel/
 Cellular/efeature_extraction/ephys/
 temp/
+
+**/.ipynb_checkpoints/
