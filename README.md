@@ -6,12 +6,19 @@ OBI Platform Analysis Notebooks
 The folder has been divided into 3 main subfolders, each corresponding to the level of analysis: 
 
 - **Cellular**
-  - [**display_morphology_population_features**](Cellular/display_morphology_population_features/analysis_notebook.ipynb): Plot morphological features for a population of morphologies
-  - [**morphology_quality_check**](Cellular/morphology_quality_check/analysis_notebook.ipynb): To test a list of morphologies against some common issues that may cause issues with tools and analyses using the morphologies.
-  - **efeature_extraction**
+
+  - **morphologies**: Notebooks on morphologies
+
+    - [**display_morphology_population_features**](Cellular/morphologies/display_morphology_population_features/analysis_notebook.ipynb): Plot morphological features for a population of morphologies
+    - [**morphology_quality_check**](Cellular/morphologies/morphology_quality_check/analysis_notebook.ipynb): To test a list of morphologies against some common issues that may cause issues with tools and analyses using the morphologies.
+
+  - **efeature_extraction**: Notebooks of e-feature extraction
+
     - [**current_clamp_ephys_extraction**](Cellular/efeature_extraction/current_clamp_ephys_extraction/analysis_notebook.ipynb): Extraction of e-features from voltage clamp experiments for analysing the firing behaviour of neurons, AP properties, subthreshold and suprathreshold voltage properties
     - [**voltage_clamp_ephys_extraction**](Cellular/efeature_extraction/voltage_clamp_ephys_extraction/analysis_notebook.ipynb): Extraction e-features from whole cell patch voltage clamp data. Use for ion channel model building.
-  - **emodels**
+
+  - **emodels**: Notebooks on E-models. See this [README](Cellular/emodels/README.md) for more details
+
       - [**parameter_plots**](Cellular/emodels/parameters_plot/analysis_notebook.ipynb): Compare parameters of an e-model across sections on Open Brain Institute Platform (OBP)
       - [**cadpyr_showcase**](Cellular/emodels/cadpyr_showcase/analysis_notebook.ipynb): Demonstrates various properties of the OBP canonical cADPyr (continuos firing and adapting type pyramidal neuron) e-model
       - [**plot_iv_fi_curve**](Cellular/emodels/plot_iv_fi_curve/analysis_notebook.ipynb): Computes and visualize IV and FI curves for a single-cell model using BlueCelluLab.

@@ -4,6 +4,7 @@ Author: Darshan Mandge, Open Brain Institute
 
 Copyright (c) 2025 Open Brain Institute
 
+Last Modified: 02.2025
 
 ## Summary
 Notebook to compare final parameter values for different sections such as apical, basal dendrites and soma of a single cell electrical model (e-model).
