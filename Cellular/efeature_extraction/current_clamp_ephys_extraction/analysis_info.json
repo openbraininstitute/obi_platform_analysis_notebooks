@@ -1,0 +1,17 @@
+{
+    "input": [
+        {
+            "data_type": {
+                "artefact": ["electrophysiology nwb file"],
+                "required_properties": []
+            },
+            "class": "list"
+        }
+    ],
+    "requires-python": ">=3.9",
+    "requirements": [
+        "matplotlib>=3.10.0",
+        "h5py>=3.12.1",
+        "efel>=5.7.13"
+    ]
+}
