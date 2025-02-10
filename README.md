@@ -32,7 +32,7 @@ The folder has been divided into 3 main subfolders, each corresponding to the le
 
 
 - **Metabolism**
-   -  - [**Metabolism**](Metabolism/analysis_notebook.ipynb): Data-driven molecular model of the neuro-glia-vascular system allows exploration of the complex relationships between the aging brain, energy metabolism, blood flow, and neuronal activity.
+   - [**Metabolism**](Metabolism/analysis_notebook.ipynb): Data-driven molecular model of the neuro-glia-vascular system allows exploration of the complex relationships between the aging brain, energy metabolism, blood flow, and neuronal activity.
 
 
 Copyright (c) 2025 - Open Brain Institute
