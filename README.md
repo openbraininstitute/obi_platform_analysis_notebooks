@@ -7,9 +7,9 @@ The folder has been divided into 3 main subfolders, each corresponding to the le
 
 - **Cellular**
   - [**display_morphology_population_features**](Cellular/display_morphology_population_features/analysis_notebook.ipynb): Plot morphological features for a population of morphologies
-  - [**morphology_quality_check**](Cellular/morphology_quality_check/analysis_notebook.ipynb): To tests a list of morphologies against some common issues that may cause issues with tools and analyses using the morphologies.
+  - [**morphology_quality_check**](Cellular/morphology_quality_check/analysis_notebook.ipynb): To test a list of morphologies against some common issues that may cause issues with tools and analyses using the morphologies.
   - **efeature_extraction**
-    - [**current_clamp_ephys_extraction**](Cellular/efeature_extraction/current_clamp_ephys_extraction/analysis_notebook.ipynb): Extraction e-features from voltage clamp experiments for analysing the firing behaviour of neurons, AP properties, subthreshold and suprathreshold voltage properties
+    - [**current_clamp_ephys_extraction**](Cellular/efeature_extraction/current_clamp_ephys_extraction/analysis_notebook.ipynb): Extraction of e-features from voltage clamp experiments for analysing the firing behaviour of neurons, AP properties, subthreshold and suprathreshold voltage properties
     - [**voltage_clamp_ephys_extraction**](Cellular/efeature_extraction/voltage_clamp_ephys_extraction/analysis_notebook.ipynb): Extraction e-features from whole cell patch voltage clamp data. Use for ion channel model building.
   - **emodels**
       - [**parameter_plots**](Cellular/emodels/parameters_plot/analysis_notebook.ipynb): Compare parameters of an e-model across sections on Open Brain Institute Platform (OBP)
@@ -27,7 +27,7 @@ The folder has been divided into 3 main subfolders, each corresponding to the le
 - **Circuit**
   - [**adjacency_matrix**](Circuit/adjacency_matrix/analysis_notebook.ipynb): extracts and visualize the connectivity between all pairs of pre- and post-synaptic neurons
   - [**circuit_composition**](Circuit/circuit_composition/analysis_notebook.ipynb): displays the composition of a circuit model with respect to user-selected neuron properties, such as morphological types, electrical types, etc.
-  - [**connectivity_matrix**](Circuit/connectivity_matrix/analysis_notebook.ipynb):  extracts and visualizes a matrix of connection probabilities or #synapses per connection (mean/std/...), grouped by a selected neuron property (layer, m-type, ...).
+  - [**connectivity_matrix**](Circuit/connectivity_matrix/analysis_notebook.ipynb): extracts and visualizes a matrix of connection probabilities or #synapses per connection (mean/std/...), grouped by a selected neuron property (layer, m-type, ...).
   - [**synapse_properties_matrix**](Circuit/synapse_properties_matrix/analysis_notebook.ipynb):  analyse, extract and visualize a matrix of a selected synapse property (conductance, delay, ...), grouped by a selected neuron property (layer, m-type, ...).
 
 
