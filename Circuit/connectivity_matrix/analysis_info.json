@@ -4,6 +4,7 @@
     "description": "This analysis extracts and visualizes a matrix of connection probabilities or #synapses per connection (mean/std/...), grouped by a selected neuron property (layer, m-type, ...).",
     "scale": "circuit",
     "type": "notebook",
+    "language": "python",
     "input": [
         {
             "data_type": {

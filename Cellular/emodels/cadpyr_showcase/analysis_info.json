@@ -3,6 +3,8 @@
     "authors": ["Darshan Mandge"],
     "description": "The notebook showcases various properties detailed morphology cADpyr (continuos adapting type pyramidal neuron) e-model of the Open Brain Institute (OBI). It plots: optimisation protocol responses, currentscape analysis, frequency-current (F-I) curve, current-voltage (V-I) curve, recordings in different sections of the neuron using BlueCellulab, dendritic potential decay, backpropagating action potential (bAP) recordings, excitatory postsynaptic potential (EPSP) recordings and EPSP ratio.",
     "scale": "cellular",
+    "type": "notebook",
+    "language": "python",
     "input": [
         {
             "data_type": {
