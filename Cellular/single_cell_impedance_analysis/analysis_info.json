@@ -1,11 +1,16 @@
 {
+    "type": "notebook",
+    "name": "single cell impedance analysis",
+    "authors": ["Aurélien Jaquier", "OBI"],
+    "description": "This notebook showcases how to run a single cell with a ZAP stimulus, record its current input and voltage output, use them to compute the cell's impedance and plot the impedance vs frequency graph.",
+    "scale": "cellular",
     "input": [
         {
             "data_type": {
-                "artefact": ["emodel-template", "morphology", "mechanisms"],
+                "artefact": ["me-model"],
                 "required_properties": []
             },
-            "class": "list"
+            "class": "single"
         }
     ],
     "requires-python": ">=3.9,<3.13",
