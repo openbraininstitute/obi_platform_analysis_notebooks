@@ -1,11 +1,12 @@
 {
+    "type": "notebook",
     "input": [
         {
             "data_type": {
-                "artefact": ["emodel-template", "morphology", "mechanisms"],
+                "artefact": ["me-model"],
                 "required_properties": []
             },
-            "class": "list"
+            "class": "single"
         }
     ],
     "requires-python": ">=3.9,<3.13",
