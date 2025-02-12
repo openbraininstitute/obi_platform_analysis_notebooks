@@ -1,4 +1,8 @@
 {
+    "name": "Extract and display a connectivity matrix from a SONATA circuit",
+    "authors": ["Christoph Pokorny"],
+    "description": "This analysis extracts and visualizes a matrix of connection probabilities or #synapses per connection (mean/std/...), grouped by a selected neuron property (layer, m-type, ...).",
+    "scale": "circuit",
     "type": "notebook",
     "input": [
         {

@@ -1,4 +1,8 @@
-{
+{   
+    "name": "Currentscape Analysis",
+    "authors": ["Aurélien Jaquier"],
+    "description": "This notebook runs a single cell with a step stimulus, records its mechanism-related currents and voltage output, and plots them as a currentscape graph, as reported f Alonso and Marder (2019)",
+    "scale": "cellular",
     "input": [
         {
             "data_type": {

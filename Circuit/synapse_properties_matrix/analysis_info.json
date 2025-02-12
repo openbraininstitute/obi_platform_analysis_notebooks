@@ -1,4 +1,8 @@
 {
+    "name": "Extract and display a synapse property matrix from a SONATA circuit",
+    "authors": ["Christoph Pokorny"],
+    "description": "This analysis extracts and visualizes a matrix of a selected synapse property (conductance, delay, ...), grouped by a selected neuron property (layer, m-type, ...).",
+    "scale": "circuit",
     "type": "notebook",
     "input": [
         {

@@ -1,4 +1,8 @@
 {
+    "name": "Extract and display an adjacency matrix from a SONATA circuit",
+    "authors": ["Christoph Pokorny"],
+    "description": "This analysis extracts and visualizes the connectivity between all pairs of pre- and post-synaptic neurons (adjacency matrix), optionally including the number of synapses per connection (synaptome matrix).",
+    "scale": "circuit",
     "type": "notebook",
     "input": [
         {

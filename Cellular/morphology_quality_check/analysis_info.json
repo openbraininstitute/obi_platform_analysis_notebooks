@@ -1,4 +1,8 @@
 {
+    "name": "Morphology Quality Check",
+    "authors": ["Michael W. Reimann"],
+    "description": "This analysis tests a list of morphologies against some common issues that may cause issues with tools and analyses using the morphologies.",
+    "scale": "cellular",
     "type": "notebook",
     "language": "python",
     "input": [

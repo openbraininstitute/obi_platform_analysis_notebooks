@@ -1,4 +1,8 @@
 {
+    "name": "Impedance Analysis",
+    "authors": ["Aurélien Jaquier"],
+    "description": "This notebook runs a single cell with a ZAP stimulus, records its current input and voltage output, uses them to compute the cell's impedance and plots the impedance vs frequency graph.",
+    "scale": "cellular",
     "input": [
         {
             "data_type": {
