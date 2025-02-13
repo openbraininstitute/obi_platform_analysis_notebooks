@@ -1,5 +1,5 @@
 {
-    "name": "Aadjacency matrix extraction",
+    "name": "Adjacency matrix extraction",
     "authors": ["OBI", "Christoph Pokorny"],
     "description": "This analysis extracts and visualizes the connectivity between all pairs of pre- and post-synaptic neurons (adjacency matrix), optionally including the number of synapses per connection (synaptome matrix).",
     "scale": "circuit",
