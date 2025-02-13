@@ -1,5 +1,5 @@
 {
-    "name": "Single Cell Currentscape Analysis",
+    "name": "Single cell currentscape analysis",
     "authors": ["OBI", "Aurélien Jaquier"],
     "description": "This notebook showcases how to run a single cell with a step stimulus, record its mechanism-related currents and voltage output, and plot them as a currentscape graph, in the style of Alonso and Marder (2019)",
     "scale": "cellular",

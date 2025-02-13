@@ -1,5 +1,5 @@
 {
-    "name": "Single Cell Impedance Analysis",
+    "name": "Single cell impedance analysis",
     "authors": ["OBI", "Aurélien Jaquier"],
     "description": "This notebook showcases how to run a single cell with a ZAP stimulus, record its current input and voltage output, use them to compute the cell's impedance and plot the impedance vs frequency graph.",
     "scale": "cellular",
