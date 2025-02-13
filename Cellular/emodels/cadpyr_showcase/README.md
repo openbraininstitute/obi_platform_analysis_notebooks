@@ -6,7 +6,7 @@ Author: Darshan Mandge, Open Brain Institute
 Last Modified: 02.2025
 
 ## Summary
-The notebook showcases various properties detailed morphology cADpyr (continuos adapting type pyramidal neuron) e-model of the Open Brain Institute(OBI). 
+The notebook showcases various properties of detailed morphology cADpyr (continuosly adapting type pyramidal neuron) e-model of the Open Brain Institute(OBI). 
 It plots: 
 - optimisation protocol responses
 - [currentscape](https://github.com/openbraininstitute/Currentscape) analysis
