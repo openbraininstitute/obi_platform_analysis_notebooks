@@ -23,6 +23,7 @@
         "matplotlib>=3.10.0",
         "numpy>=2.2.1",
         "obi_auth>=0.3.0",
+        "obi_notebook>=0.1.dev10",
         "pandas>=2.2.3"
     ]
 }
