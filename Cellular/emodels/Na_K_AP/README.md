@@ -1,4 +1,4 @@
-# IV/FI Curve Analysis
+# Recording Na⁺ and K⁺ currents during an AP
 Copyright (c) 2025 Open Brain Institute
 
 Authors: Ilkan Kilic
