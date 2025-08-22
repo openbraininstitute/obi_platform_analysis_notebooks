@@ -1,7 +1,7 @@
 {
-    "name": "Recording Na⁺ and K⁺ currents during an AP",
+    "name": "Recording Na⁺ and K⁺ ionic currents during an AP",
     "authors": ["OBI", "Ilkan Kiliç"],
-    "description": "In this example, we simulate a single neuron (me-model) and record its membrane potential (v) together with sodium (Na⁺) and potassium (K⁺) ionic currents from specific ion channel mechanisms. By observing NaTg.ina and K_Pst.ik during an evoked action potential, we can explore how sodium influx and potassium efflux shape the waveform of the spike.",
+    "description": "In this example, we simulate a single neuron (me-model) and record its membrane potential (v) together with sodium (Na⁺, ina) and potassium (K⁺, ik) ionic currents. By observing these ion-level currents during an evoked action potential, we can explore how sodium influx and potassium efflux shape the waveform of the spike.",
     "scale": "cellular",
     "type": "notebook",
     "kernel": "python",
