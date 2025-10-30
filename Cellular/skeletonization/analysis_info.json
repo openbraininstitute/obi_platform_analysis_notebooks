@@ -1,0 +1,23 @@
+{
+    "name": "Skeletonize cell mesh and extract spines",
+    "authors": ["OBI", "Marwan Abdellah", "Michael W. Reimann"],
+    "description": "In this notebook the user selects a cell surface mesh, which is then turned into a morphology skeleton in all common formats (.swc, .asc, .h5) and all spines are extracted.",
+    "scale": "cellular",
+    "type": "notebook",
+    "kernel": "python",
+    "input": [
+        {
+            "data_type": {
+                "artefact": "EMCellMesh",
+                "required_properties": []
+            },
+            "class": "single"
+        }
+    ],
+    "requirements": [
+        "entitysdk>=0.5.0",
+        "obi-auth>=0.3.0",
+        "json",
+        "httpx"
+    ]
+}

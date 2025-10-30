@@ -29,6 +29,10 @@ The folder has been divided into 3 main subfolders, each corresponding to the le
     - [**display_morphology_population_features**](Cellular/morphologies/display_morphology_population_features/analysis_notebook.ipynb): Plot morphological features for a population of morphologies
     - [**morphology_quality_check**](Cellular/morphologies/morphology_quality_check/analysis_notebook.ipynb): To test a list of morphologies against some common issues that may cause issues with tools and analyses using the morphologies.
 
+  - **skeletonization**: Notebooks for skeletonization
+    - [**skeletonization**](Cellular/skeletonization/skeletonization.ipynb): Provide a single function that performs skeletonization of neuronal mesh models reconstructed with electron microscopes. 
+    - [**skeletonization_utilities**](Cellular/skeletonization/skeletonization_utilities.ipynb): Provide a step-by-step skeletonization functionality from neuronal mesh models reconstructed with electron microscopes with several utilities for visualization and validation. 
+
 - **Circuit**
   - [**adjacency_matrix**](Circuit/adjacency_matrix/analysis_notebook.ipynb): extracts and visualize the connectivity between all pairs of pre- and post-synaptic neurons
   - [**circuit_composition**](Circuit/circuit_composition/analysis_notebook.ipynb): displays the composition of a circuit model with respect to user-selected neuron properties, such as morphological types, electrical types, etc.
