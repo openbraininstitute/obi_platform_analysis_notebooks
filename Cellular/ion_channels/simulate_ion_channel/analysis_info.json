@@ -1,0 +1,25 @@
+{
+    "name": "Simulate Ion Channel",
+    "authors": ["Darshan Mandge"],
+    "description": "Simulate Ion Channel",
+    "scale": "cellular",
+    "type": "notebook",
+    "kernel": "python",
+    "input": [
+        {
+            "data_type": {
+                "artefact": "IonChannelSimulation",
+                "required_properties": []
+            },
+            "class": "single"
+        }
+    ],
+    "requirements": [
+        "neuron>=8.2.7",
+        "numpy>=1.24.3",
+        "ipywidgets>=8.1.0",
+        "matplotlib>=3.7.1",
+        "entitysdk>=0.8.7",
+        "obi-auth>=0.3.0"
+    ]
+}
