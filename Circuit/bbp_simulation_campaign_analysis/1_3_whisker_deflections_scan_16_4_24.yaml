@@ -1,0 +1,145 @@
+version: 4
+simulation_campaign: ./staged_simulation_campaigns/4dbc44a3-90ea-4e3b-a53e-62417635e91d/config.json
+cache:
+  path: ./analysis_output
+analysis:
+  hex0_spikes:
+    extraction:
+      report: {type: spikes}
+      limit: null
+      neuron_classes:
+        L23_EXC:
+          query:
+            layer: [2, 3]
+            synapse_class: [EXC]
+        L4_EXC:
+          query:
+            layer: [4]
+            synapse_class: [EXC]
+        L5_EXC:
+          query:
+            layer: [5]
+            synapse_class: [EXC]
+        L6_EXC:
+          query:
+            layer: [6]
+            synapse_class: [EXC]
+        L1_INH:
+          query:
+            layer: [1]
+            synapse_class: [INH]
+        L23_INH:
+          query:
+            layer: [2, 3]
+            synapse_class: [INH]
+        L4_INH:
+          query:
+            layer: [4]
+            synapse_class: [INH]
+        L5_INH:
+          query:
+            layer: [5]
+            synapse_class: [INH]
+        L6_INH:
+          query:
+            layer: [6]
+            synapse_class: [INH]
+        L23_PV: 
+          query:
+            layer: [2, 3]
+            mtype: [L23_LBC, L23_NBC, L23_CHC]
+        L4_PV: 
+          query:
+            layer: [4]
+            mtype: [L4_CHC, L4_NBC, L4_LBC]
+        L5_PV: 
+          query:
+            layer: [5]
+            mtype: [L5_CHC, L5_LBC, L5_NBC]
+        L6_PV: 
+          query:
+            layer: [6]
+            mtype: [L6_LBC, L6_CHC, L6_NBC]
+        L23_SST: 
+          query:
+            layer: [2, 3]
+            mtype: [L23_BTC, L23_NGC, L23_SBC, L23_MC, L23_DBC]
+        L4_SST: 
+          query:
+            layer: [4]
+            mtype: [L4_NGC, L4_DBC, L4_SBC, L4_BTC, L4_MC]
+        L5_SST: 
+          query:
+            layer: [5]
+            mtype: [L5_SBC, L5_BTC, L5_DBC, L5_NGC, L5_MC]
+        L6_SST: 
+          query:
+            layer: [6]
+            mtype: [L6_BTC, L6_NGC, L6_MC, L6_SBC, L6_DBC]
+        L23_5HT3aR: 
+          query:
+            layer: [2, 3]
+            mtype: [L23_BP]
+        L4_5HT3aR: 
+          query:
+            layer: [4]
+            mtype: [L4_BP]
+        L5_5HT3aR:
+          query:
+            layer: [5]
+            mtype: [L5_BP]
+        L6_5HT3aR:
+          query:
+            layer: [6]
+            mtype: [L6_BP]
+
+        ALL_INH:
+          query:
+            synapse_class: [INH]
+          limit: null
+        ALL_EXC:
+          query:
+            synapse_class: [EXC]
+          limit: null
+        ALL: {limit: null}
+      windows:
+        unconn_2nd_half:
+          bounds: [500, 1000]
+          window_type: spontaneous
+        conn_spont:
+          bounds: [1500, 2500]
+          window_type: spontaneous
+        evoked_SOZ_25ms: 
+          bounds: [ 0, 25 ]
+          initial_offset: 1500
+          n_trials: 10
+          trial_steps_value: 1000
+          window_type: evoked_stimulus_onset_zeroed
+        evoked_SOZ_250ms: 
+          bounds: [ -50, 250 ]
+          initial_offset: 1500
+          n_trials: 10
+          trial_steps_value: 1000
+          window_type: evoked_stimulus_onset_zeroed
+      population: S1nonbarrel_neurons
+      node_set: hex0
+    # features:
+    # - type: multi
+    #   groupby: [simulation_id, circuit_id, neuron_class, window]
+    #   function: blueetl.external.bnac.calculate_features.calculate_features_multi
+    #   params:
+    #     export_all_neurons: true
+    #     histograms:
+    #       1ms:
+    #         bin_size: 1.0
+    #         smoothing:
+    #           1sd: {smoothing_type: Gaussian, kernel_sd: 1.0}
+    #           3sd: {smoothing_type: Gaussian, kernel_sd: 3.0}
+    #       3ms:
+    #         bin_size: 3.0
+    #         smoothing:
+    #           1sd: {smoothing_type: Gaussian, kernel_sd: 1.0}
+    #       5ms:
+    #         bin_size: 5.0
+    #         smoothing:
+    #           1sd: {smoothing_type: Gaussian, kernel_sd: 1.0}
