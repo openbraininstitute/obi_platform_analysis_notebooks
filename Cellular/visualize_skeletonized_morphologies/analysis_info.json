@@ -1,0 +1,23 @@
+{
+    "name": "Visualize skeletonized neuronal morphologies including neuronal meshes and segmented spine meshes.",
+    "authors": ["OBI", "Marwan Abdellah", "Michael W. Reimann"],
+    "description": "In this notebook the user selects a skeletonized cell morphology for visualization and analysis. The morphology is visualized together with its corresponding EM mesh and segmented spine meshes (if available). The notebook also provides basic analysis of the morphology and its spines.",
+    "scale": "cellular",
+    "type": "notebook",
+    "kernel": "python",
+    "input": [
+        {
+            "data_type": {
+                "artefact": "EMCellMesh",
+                "required_properties": []
+            },
+            "class": "single"
+        }
+    ],
+    "requirements": [
+        "entitysdk>=0.5.0",
+        "obi-auth>=0.3.0",
+        "json",
+        "httpx"
+    ]
+}
