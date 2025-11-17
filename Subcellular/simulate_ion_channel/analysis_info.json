@@ -1,0 +1,25 @@
+{
+    "name": "Simulate Ion Channel",
+    "authors": ["Darshan Mandge"],
+    "description": "This notebook is used to simulate an Ion Channel Model built or regsitered on the Open Brain Institute Platform. The notebook intializes the Ion Channel Model into a single compartment cynlidrical soma and then simulates a voltage clamp experiment to show ion channel currents recorded at different voltages.",
+    "scale": "subcellular",
+    "type": "notebook",
+    "kernel": "python",
+    "input": [
+        {
+            "data_type": {
+                "artefact": "IonChannelModel",
+                "required_properties": []
+            },
+            "class": "single"
+        }
+    ],
+    "requirements": [
+        "neuron==8.2.7",
+        "numpy>=1.24.3",
+        "ipywidgets>=8.1.0",
+        "matplotlib>=3.7.1",
+        "entitysdk>=0.9.1",
+        "obi-auth>=0.3.1"
+    ]
+}
