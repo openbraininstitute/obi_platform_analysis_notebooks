@@ -1,0 +1,30 @@
+{
+    "name": "BBP simulation campaign analysis - whisker deflections scan",
+    "authors": ["OBI", "James B. Isbister", "Christoph Pokorny"],
+    "description": "This notebook loads and analyzes a simulation campaign recorded at the Blue Brain Project (BBP) using the nbS1-O1-SM (Schneider-Mizell) circuit. The campaign consists of 72 simulations with whisker flick stimulation on VPM fibers, scanned over different values of calcium, Ornstein-Uhlenbeck std to mean ratio R_OU, in-vivo firing rate proportion P_FR, and percentage of VPM fibers. Related publication: Isbister et al., 2025 (DOI: 10.7554/eLife.99693.2)",
+    "scale": "circuit",
+    "type": "notebook",
+    "kernel": "python",
+    "input": [
+        {
+            "data_type": {
+                "artefact": "SimulationCampaign",
+                "required_properties": [
+                ]
+            },
+            "class": "single"
+        }
+    ],
+    "requirements": [
+        "blueetl>=0.13.4",
+        "bluepysnap>=3.0.1",
+        "entitysdk>=0.9.0",
+        "ipywidgets>=7.8.5",
+        "jupyter>=1.1.1",
+        "matplotlib>=3.10.7",
+        "numpy>=2.3.4",
+        "obi_auth>=0.4.1",
+        "obi_notebook>=0.3",
+        "pandas>=2.3.3"
+    ]
+}
