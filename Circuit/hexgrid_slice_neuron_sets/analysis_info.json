@@ -1,0 +1,29 @@
+{
+    "name": "nbS1 slice neuron sets based on a hexgrid parcellation",
+    "authors": ["OBI", "Christoph Pokorny"],
+    "description": "This notebook allows a user to interactively select and visualize slice neuron sets based on a pre-computed hexagonal parcellation of the nbS1 circuit.",
+    "scale": "circuit",
+    "type": "notebook",
+    "kernel": "python",
+    "input": [
+        {
+            "data_type": {
+                "artefact": "SimulatableCircuit",
+                "required_properties": [
+                ]
+            },
+            "class": "single"
+        }
+    ],
+    "requirements": [
+        "bluepysnap>=3.0.2",
+        "numpy>=2.3.5",
+        "pandas>=2.3.3",
+        "plotly>=6.7.0",
+        "Connectome-Utilities>=0.4.11",
+        "entitysdk>=0.13.3",
+        "ipywidgets>=8.1.8",
+        "obi_auth>=1.0.0",
+        "obi_notebook>=0.4.1"
+    ]
+}
