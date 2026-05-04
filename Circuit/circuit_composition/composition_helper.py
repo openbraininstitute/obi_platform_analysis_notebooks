@@ -6,8 +6,9 @@ import bluepysnap as snap
 import plotly.graph_objects as go
 
 from datetime import datetime
-from entitysdk import models
+from entitysdk import models, staging
 from ipywidgets import widgets
+from pathlib import Path
 
 def stage_selected_circuit_locally(client, circuit_id):
     # Fetch circuit
@@ -16,23 +17,15 @@ def stage_selected_circuit_locally(client, circuit_id):
     print(f"#Neurons: {fetched.number_neurons}, #Synapses: {fetched.number_synapses}, #Connections: {fetched.number_connections}\n")
     print(f"{fetched.description}\n")
 
-    # Download SONATA circuit files
-    asset = [asset for asset in fetched.assets if asset.label=="sonata_circuit"][0]
-    asset_dir = asset.path 
+    # Download or link SONATA circuit files
     circuit_dir = "analysis_circuit_" + datetime.now().strftime('%Y-%m-%d_%H-%M-%S_%f')
 
-    t0 = time.time()
-    client.download_directory(
-        entity_id=fetched.id,
-        entity_type=models.Circuit,
-        asset_id=asset.id,
-        output_path=circuit_dir,
-        max_concurrent=4,  # Parallel file download
+    circuit_config = staging.stage_circuit(
+        client=client,
+        model=fetched,
+        output_dir=Path(circuit_dir),
+        max_concurrent=8
     )
-    t = time.time() - t0
-    print(f"Circuit files downloaded to '{os.path.join(circuit_dir, asset_dir)}' in {t:.1f}s")
-    circuit_asset_dir = os.path.join(circuit_dir, asset_dir)
-    circuit_config = os.path.join(circuit_asset_dir, "circuit_config.json")
     assert os.path.exists(circuit_config), f"ERROR: Circuit config '{os.path.split(circuit_config)[1]}' not found!"
 
     circ = snap.Circuit(circuit_config)
