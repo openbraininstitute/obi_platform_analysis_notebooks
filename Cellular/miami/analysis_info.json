@@ -1,7 +1,7 @@
 {
     "name": "Display single cell simulation results",
-    "authors": ["OBI", "Michael W. Reimann", "Aurélien Jaquier"],
-    "description": "Plots: (1) Recorded voltage traces from the output of single cell simulations. (2) Spike counts detected in the output of single cell simulations. To be used as a starting point for more complex analyses.",
+    "authors": ["OBI", "Armando Romani"],
+    "description": "Study the effect of manipulating h-current g_bar to mimic AD-like pathology.",
     "scale": "cellular",
     "type": "notebook",
     "kernel": "python",
