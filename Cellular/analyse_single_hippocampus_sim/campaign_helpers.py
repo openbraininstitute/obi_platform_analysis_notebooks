@@ -118,10 +118,10 @@ def extract_features_from_simulation(sim_path):
     # Features to extract
     feature_names = [
         'Spikecount',                    # Number of spikes
-        'AP_duration_half_width',        # AP half-width duration
-        'AHP_depth_abs',                 # Fast AHP depth (absolute)
-        'AHP_depth_abs_slow',            # Slow AHP depth (absolute)
-        'fast_AHP'                       # Fast AHP amplitude
+        # 'AP_duration_half_width',        # AP half-width duration
+        # 'AHP_depth_abs',                 # Fast AHP depth (absolute)
+        # 'AHP_depth_abs_slow',            # Slow AHP depth (absolute)
+        # 'fast_AHP'                       # Fast AHP amplitude
     ]
     
     # Extract features
@@ -133,10 +133,10 @@ def extract_features_from_simulation(sim_path):
         'stim_start': stim_start,
         'stim_end': stim_end,
         'spike_count': result['Spikecount'][0] if result['Spikecount'] is not None else 0,
-        'AP_half_width_mean': np.mean(result['AP_duration_half_width']) if result['AP_duration_half_width'] is not None else None,
-        'AHP_depth_abs_mean': np.mean(result['AHP_depth_abs']) if result['AHP_depth_abs'] is not None else None,
-        'fast_AHP_mean': np.mean(result['fast_AHP']) if result['fast_AHP'] is not None else None,
-        'AHP_depth_abs_slow_mean': np.mean(result['AHP_depth_abs_slow']) if result['AHP_depth_abs_slow'] is not None else None,
+        # 'AP_half_width_mean': np.mean(result['AP_duration_half_width']) if result['AP_duration_half_width'] is not None else None,
+        # 'AHP_depth_abs_mean': np.mean(result['AHP_depth_abs']) if result['AHP_depth_abs'] is not None else None,
+        # 'fast_AHP_mean': np.mean(result['fast_AHP']) if result['fast_AHP'] is not None else None,
+        # 'AHP_depth_abs_slow_mean': np.mean(result['AHP_depth_abs_slow']) if result['AHP_depth_abs_slow'] is not None else None,
     }
     
     return features
