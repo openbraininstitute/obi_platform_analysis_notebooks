@@ -535,14 +535,30 @@ def assemble_publications(pub_widgets: dict) -> dict:
 
     Returns:
         Dict mapping DOIs to their publication type.
+
+    Raises:
+        ValueError: If the same DOI is selected in multiple categories.
     """
     circuit_publications = {}
+    duplicates = []
+
     for doi in pub_widgets["w_pub_source"].value:
         circuit_publications[doi] = {"type": "entity_source"}
     for doi in pub_widgets["w_pub_component"].value:
-        circuit_publications[doi] = {"type": "component_source"}
+        if doi in circuit_publications:
+            duplicates.append(doi)
+        else:
+            circuit_publications[doi] = {"type": "component_source"}
     for doi in pub_widgets["w_pub_application"].value:
-        circuit_publications[doi] = {"type": "application"}
+        if doi in circuit_publications:
+            duplicates.append(doi)
+        else:
+            circuit_publications[doi] = {"type": "application"}
+
+    if duplicates:
+        raise ValueError(
+            f"Duplicate DOI(s) selected in multiple categories: {set(duplicates)}"
+        )
 
     print(f"{len(circuit_publications)} publication(s) selected:")
     for doi, info in circuit_publications.items():
