@@ -28,19 +28,27 @@ def query_metadata_options(
     """
     print("Collecting metadata options...")
 
+    def _query(entity_type, query=None):
+        """Run a query with error handling."""
+        name = entity_type.__name__
+        print(f"> Querying {name}")
+        try:
+            return client.search_entity(entity_type=entity_type, query=query).all()
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to fetch {name} - check your connection and client credentials.\n"
+                f"  Original error: {e}"
+            ) from e
+
     # Query available species
-    print("> Querying species")
-    all_species = client.search_entity(entity_type=models.Species).all()
+    all_species = _query(models.Species)
     species_names = sorted([s.name for s in all_species])
     if default_species not in species_names:
         default_species = species_names[0]
 
     # Query available circuits (exclude single-neuron scale)
-    print("> Querying circuits")
     circuit_scales = [scale.name for scale in CircuitScale if scale != "single"]
-    all_circuits = client.search_entity(
-        entity_type=models.Circuit, query={"scale__in": circuit_scales}
-    ).all()
+    all_circuits = _query(models.Circuit, query={"scale__in": circuit_scales})
     circuit_names = [
         (f"{c.scale}: {c.name}{' [public]' if c.authorized_public else ''}", c.name)
         for c in all_circuits
@@ -48,8 +56,7 @@ def query_metadata_options(
     circuit_names = sorted(circuit_names, key=lambda c: c[0])
 
     # Query available subjects
-    print("> Querying subjects")
-    all_subjects = client.search_entity(entity_type=models.Subject).all()
+    all_subjects = _query(models.Subject)
     subject_species = set(s.species for s in all_subjects)
     subject_names = {
         species.name: sorted(
@@ -63,10 +70,7 @@ def query_metadata_options(
     }
 
     # Query available brain region hierarchies
-    print("> Querying brain region hierarchies")
-    all_hierarchies = client.search_entity(
-        entity_type=models.BrainRegionHierarchy
-    ).all()
+    all_hierarchies = _query(models.BrainRegionHierarchy)
     hierarchy_species = set(h.species for h in all_hierarchies)
     hierarchy_names = {
         species.name: sorted([h.name for h in all_hierarchies if h.species == species])
@@ -74,32 +78,28 @@ def query_metadata_options(
     }
 
     # Query available brain regions (grouped by hierarchy)
-    print("> Querying brain regions")
-    all_brain_regions = client.search_entity(entity_type=models.BrainRegion).all()
+    all_brain_regions = _query(models.BrainRegion)
     brain_region_names = {
         h.name: sorted([r.name for r in all_brain_regions if r.hierarchy_id == h.id])
         for h in all_hierarchies
     }
 
     # Query available licenses
-    print("> Querying licenses")
-    all_licenses = client.search_entity(entity_type=models.License).all()
+    all_licenses = _query(models.License)
     license_names = sorted([lic.label for lic in all_licenses])
 
     # Query available contributors
-    print("> Querying contributors")
-    all_persons = client.search_entity(entity_type=models.Person).all()
+    all_persons = _query(models.Person)
     person_names = sorted(set([p.pref_label for p in all_persons]))
 
-    all_organizations = client.search_entity(entity_type=models.Organization).all()
+    all_organizations = _query(models.Organization)
     organization_names = sorted(set([o.pref_label for o in all_organizations]))
 
-    all_consortia = client.search_entity(entity_type=models.Consortium).all()
+    all_consortia = _query(models.Consortium)
     consortium_names = sorted(set([c.pref_label for c in all_consortia]))
 
     # Query available publications
-    print("> Querying publications")
-    all_publications = client.search_entity(entity_type=models.Publication).all()
+    all_publications = _query(models.Publication)
     publication_options = sorted(
         [
             (
