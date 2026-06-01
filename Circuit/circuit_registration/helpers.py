@@ -408,13 +408,19 @@ def validate_paths(
         overview_image_path: Optional path to overview image.
         sim_designer_image_path: Optional path to simulation designer image.
     """
+    missing = []
     for name, path in [
         ("Circuit path", circuit_path),
         ("Overview image path", overview_image_path),
         ("Sim designer image path", sim_designer_image_path),
     ]:
         if path and not Path(path).exists():
-            print(f"ERROR: {name} not found: {path}")
+            missing.append(f"{name}: {path}")
+
+    if missing:
+        raise FileNotFoundError("File(s) not found:\n  " + "\n  ".join(missing))
+
+    print("All file paths OK.")
 
 
 def create_contributor_widgets(options: dict) -> dict:
