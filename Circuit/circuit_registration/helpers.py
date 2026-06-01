@@ -575,3 +575,19 @@ def check_registered_circuit(client: "Client", registered_circuit) -> None:
             )
     else:
         print("Circuit not registered!")
+
+
+def create_dry_run_widget():
+    """Create a radio button widget for selecting dry run or actual registration.
+
+    Returns:
+        Widget instance with value True (dry run) or False (actual registration).
+    """
+    w_dry_run = widgets.RadioButtons(
+        options=[("Dry run", True), ("Actual registration", False)],
+        value=True,
+        description="Mode:",
+        style={"description_width": "180px"},
+    )
+    display(w_dry_run)
+    return w_dry_run
