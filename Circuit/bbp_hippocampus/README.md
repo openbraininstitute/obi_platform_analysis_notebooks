@@ -1,4 +1,4 @@
-# Circuit composition
+# Simulation analysis
 Copyright (c) 2025 Open Brain Institute
 
 Authors: Armando Romani
