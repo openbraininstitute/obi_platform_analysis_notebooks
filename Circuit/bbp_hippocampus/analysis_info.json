@@ -1,0 +1,23 @@
+{
+    "name": "Analysis of theta oscillation",
+    "authors": ["OBI", "Armando Romani"],
+    "description": "In this notebook, we analyze a simulation performed at the Blue Brain Project and published in Romani et al. (2024). The simulation is part of a larger campaign designed to identify the parameter conditions that best induce theta oscillations in a rat CA1 model. Here, we focus on the simulation corresponding to the best-performing conditions identified in that campaign.",
+    "scale": "circuit",
+    "type": "notebook",
+    "kernel": "python",
+    "input": [
+        {
+            "data_type": {
+                "artefact": "CircuitSimulation",
+                "required_properties": [
+                ]
+            },
+            "class": "single"
+        }
+    ],
+    "requirements": [
+        "bluepysnap>=3.0.1",
+        "jupyter>=1.1.1",
+        "matplotlib>=3.10.0"
+    ]
+}
