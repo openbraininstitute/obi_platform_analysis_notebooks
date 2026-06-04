@@ -3,10 +3,10 @@ Copyright (c) 2025 Open Brain Institute
 
 Authors: Armando Romani
 
-last modified: 05.2026
+last modified: 06.2026
 
 ## Summary
-Study the effect of manipulating h-current g_bar to mimic AD-like pathology.
+Fetch and visualize singe cell simulation campaigns.
 
 ## Use
 Simply run the cells of the notebook. 
