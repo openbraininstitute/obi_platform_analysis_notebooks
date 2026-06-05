@@ -567,7 +567,7 @@ def assemble_publications(pub_widgets: dict) -> dict:
     return circuit_publications
 
 
-def check_registered_circuit(client: "Client", registered_circuit) -> None:
+def check_registered_circuit(client: Client, registered_circuit: models.Circuit | None) -> None:
     """Fetch and print info about a registered circuit entity.
 
     Args:
@@ -595,6 +595,9 @@ def check_registered_circuit(client: "Client", registered_circuit) -> None:
             print(
                 f"  Asset '{a.label}' ({'dir' if a.is_directory else 'file'}) registered (ID {a.id})"
             )
+        
+        # Print direct link
+        print(f"\nLink to entity: {client.api_url.split('api')[0]}app/entity/{registered_circuit.id}")
     else:
         print("Circuit not registered!")
 
