@@ -214,8 +214,8 @@ def create_metadata_widgets(options: dict) -> dict:
 
     # --- Optional fields ---
     w_target_simulator = widgets.Dropdown(
-        options=[("None (use default)", None)] + [(e.name, e) for e in TargetSimulator],
-        value=None,
+        options=[(e.name, e) for e in TargetSimulator],
+        value=TargetSimulator.NEURON,
         description="Target simulator:",
         style={"description_width": "180px"},
         layout=widgets.Layout(width="50%"),
@@ -295,13 +295,13 @@ def create_metadata_widgets(options: dict) -> dict:
             w_subject,
             w_brain_region_hierarchy,
             w_brain_region,
+            w_target_simulator,
         ]
     )
 
     optional_box = widgets.VBox(
         [
             widgets.HTML("<h4>Optional</h4>"),
-            w_target_simulator,
             w_root,
             w_parent,
             w_derivation_type,
@@ -377,6 +377,7 @@ def assemble_circuit_metadata(w: dict, options: dict) -> dict:
         "subject",
         "brain_region_hierarchy",
         "brain_region",
+        "target_simulator",
     ]
     _missing = [k for k in _required if not circuit_metadata.get(k)]
     if circuit_metadata.get("parent") and not circuit_metadata.get("derivation_type"):
@@ -567,7 +568,9 @@ def assemble_publications(pub_widgets: dict) -> dict:
     return circuit_publications
 
 
-def check_registered_circuit(client: Client, registered_circuit: models.Circuit | None) -> None:
+def check_registered_circuit(
+    client: Client, registered_circuit: models.Circuit | None
+) -> None:
     """Fetch and print info about a registered circuit entity.
 
     Args:
@@ -595,9 +598,11 @@ def check_registered_circuit(client: Client, registered_circuit: models.Circuit 
             print(
                 f"  Asset '{a.label}' ({'dir' if a.is_directory else 'file'}) registered (ID {a.id})"
             )
-        
+
         # Print direct link
-        print(f"\nLink to entity: {client.api_url.split('api')[0]}app/entity/{registered_circuit.id}")
+        print(
+            f"\nLink to entity: {client.api_url.split('api')[0]}app/entity/{registered_circuit.id}"
+        )
     else:
         print("Circuit not registered!")
 
