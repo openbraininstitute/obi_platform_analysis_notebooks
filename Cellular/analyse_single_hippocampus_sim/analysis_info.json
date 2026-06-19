@@ -1,7 +1,7 @@
 {
-    "name": "Display single cell simulation results",
+    "name": "Display hippocampus single cell simulation results",
     "authors": ["OBI", "Armando Romani"],
-    "description": "Study the effect of manipulating h-current g_bar to mimic AD-like pathology.",
+    "description": "Fetch single cell simulations and compute input-output curve.",
     "scale": "cellular",
     "type": "notebook",
     "kernel": "python",
