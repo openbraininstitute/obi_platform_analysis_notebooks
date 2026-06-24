@@ -41,7 +41,7 @@ def morph_segments_dataframe(morph: Morphology, ):
         df_["afferent_section_id"] = sec_.id + 1
         df_["afferent_segment_id"] = np.arange(len(df_))
         df_["afferent_segment_offset"] = 0.5 * seg_l
-        df_["cone_area"] = np.pi * seg_l * (seg_r ** 2)
+        df_["cone_area"] = 2 * np.pi * seg_l * seg_r
         df_["length"] = seg_l
         df_["radius"] = seg_r
         pt_df.append(df_)
@@ -96,6 +96,8 @@ def spine_area_df(m):
             a_head = m.spines.centered_spine_mesh(spine_id, include_neck=False).area
         except:
             a_head = 0.0
+        if a_neck == a_head:
+            a_neck = 0.0
         spine_areas.append((a_neck, a_head))
     spine_areas = pandas.DataFrame(spine_areas, columns=["neck_area", "head_area"])
     spine_df = pandas.concat([
@@ -109,11 +111,13 @@ def downline_of(sec):
         ret += downline_of(child)
     return ret
 
-def smoothed(df, col_x, col_y, w=50.0):
+def smoothed(df, col_x, col_y, w=50.0, col_length="length"):
     x_data = df[col_x].to_numpy().reshape((1, -1))
     y_data = df[col_y].to_numpy().reshape((1, -1))
     x_smpl = np.arange(0, df[col_x].max() + 2)
     w = norm(0.0, w).pdf(x_smpl.reshape((-1, 1)) - x_data) # smpl X data
+    if col_length is not None:
+        w = w * df[col_length].to_numpy().reshape((1, -1))
     return x_smpl, ((y_data * w).sum(axis=1) / w.sum(axis=1)).flatten()
 
 
