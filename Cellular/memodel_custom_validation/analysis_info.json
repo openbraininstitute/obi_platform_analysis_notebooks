@@ -1,0 +1,26 @@
+{
+    "name": "ME-Model Custom Validation",
+    "authors": ["OBI", "Ilkan Kilic"],
+    "description": "Demonstrates the OBI-One validation workflow with custom parametric validations on ME-Models using BlueCelluLab's validation framework. Users can define custom Protocol + Measurement + Criterion compositions and register results as ValidationResult entities.",
+    "scale": "cellular",
+    "type": "notebook",
+    "kernel": "python",
+    "input": [
+        {
+            "data_type": {
+                "artefact": "MEModel",
+                "required_properties": []
+            },
+            "class": "single"
+        }
+    ],
+    "requirements": [
+        "numpy>=1.24.3",
+        "matplotlib>=3.7.1",
+        "efel>=5.0.0",
+        "bluecellulab>=2.6.99",
+        "obi-one",
+        "entitysdk>=0.19.0",
+        "obi-auth>=1.0.0"
+    ]
+}
