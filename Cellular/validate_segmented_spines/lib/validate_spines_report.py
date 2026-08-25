@@ -13,7 +13,7 @@ from morph_spines_visualizer.core import data_loading
 ISSUE_LABELS = {
     "false_positive": "False Positive",
     "incomplete_spine": "Incomplete Spine",
-    "false_positive_quality": "False Positive Quality",
+    "false_positive_quality": "False Positive",
     "merged_spine": "Merged Spine",
     "split_spine": "Split Spine",
 }
@@ -39,7 +39,7 @@ def _parse_screenshot(path: Path):
 
 
 def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    font_path = Path(__file__).resolve().parent / "assets" / "fonts" / "Arimo-Regular.ttf"
+    font_path = Path(__file__).resolve().parent / "Arimo-Regular.ttf"
     if font_path.is_file():
         try:
             return ImageFont.truetype(str(font_path), size)

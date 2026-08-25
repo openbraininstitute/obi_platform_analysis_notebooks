@@ -525,9 +525,7 @@ def validate_spines(morphology_path, mesh_path):
             ) from exc
 
         font_path = (
-            Path(__file__).resolve().parent / 'assets' / 'fonts' / 'Arimo-Regular.ttf'
-            if '__file__' in globals()
-            else Path.cwd() / 'examples' / 'assets' / 'fonts' / 'Arimo-Regular.ttf'
+            Path(__file__).resolve().parent / 'Arimo-Regular.ttf'
         )
         if not font_path.is_file():
             raise RuntimeError(f'Bundled assessment font not found: {font_path}')
