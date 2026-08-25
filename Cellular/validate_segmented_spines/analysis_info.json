@@ -21,6 +21,7 @@
         "httpx",
         "pylmesh",
         "morph-spines",
+        "matplotlib>=3.10.0",
         "ipywidgets",
         "entitysdk"
     ]
