@@ -20,6 +20,11 @@ from morph_spines_visualizer.core import data_loading, geometry, k3d_core
 from morph_spines_visualizer.core import spines as spines_lib
 
 try:
+    from validate_spines_report import create_validation_report_pdf
+except ModuleNotFoundError:
+    from examples.validate_spines_report import create_validation_report_pdf
+
+try:
     from scipy.spatial import cKDTree
 except ImportError:  # pragma: no cover - exercised only in minimal installations
     cKDTree = None
@@ -499,10 +504,11 @@ def validate_spines(morphology_path, mesh_path):
 
 
     def stats_figure_paths():
-        """Return the deterministic path for the section-validity figure."""
+        """Return deterministic paths for the registration analysis figures."""
         stem = validation_csv_path.stem
         return [
             validation_csv_path.with_name(f'{stem}_section_validity.png'),
+            validation_csv_path.with_name(f'{stem}_issue_counts.png'),
         ]
 
 
@@ -532,11 +538,11 @@ def validate_spines(morphology_path, mesh_path):
 
         (
             loaded_spines,
-            _,
-            _,
-            _,
-            _,
-            _,
+            loaded_false_positives,
+            loaded_incomplete_spines,
+            loaded_false_positive_quality,
+            loaded_merged_spines,
+            loaded_split_spines,
             _,
         ) = read_validation_csv(validation_csv_path)
 
@@ -603,6 +609,40 @@ def validate_spines(morphology_path, mesh_path):
         figure.savefig(figure_paths[0], dpi=150, bbox_inches='tight')
         plt.close(figure)
 
+        # Per-section positive issue counts.
+        issue_series = (
+            ('False Positive', loaded_false_positives, '#c5221f'),
+            ('Incomplete Spine', loaded_incomplete_spines, '#e37400'),
+            ('False Positive Quality', loaded_false_positive_quality, '#f9ab00'),
+            ('Merged Spine', loaded_merged_spines, '#9334e6'),
+            ('Split Spine', loaded_split_spines, '#1a73e8'),
+        )
+        figure, axis = plt.subplots(
+            figsize=(max(11, len(section_ids) * 0.24), 6)
+        )
+        bottoms = np.zeros(len(section_ids))
+        for label, results, color in issue_series:
+            values = [
+                sum(
+                    status == 'yes'
+                    for (saved_section_id, _), status in results.items()
+                    if saved_section_id == section_id
+                )
+                for section_id in section_ids
+            ]
+            axis.bar(section_ids, values, bottom=bottoms, label=label, color=color)
+            bottoms += np.asarray(values)
+        axis.set_title('Spine Issues by Section')
+        axis.set_xlabel('Section ID', fontproperties=axis_label_font)
+        axis.set_ylabel('Issue Count', fontproperties=axis_label_font)
+        axis.legend()
+        axis.grid(axis='y', alpha=0.25)
+        if len(section_ids) > 30:
+            axis.set_xticks(section_ids[::max(1, len(section_ids) // 20)])
+        figure.tight_layout()
+        figure.savefig(figure_paths[1], dpi=150, bbox_inches='tight')
+        plt.close(figure)
+
         return figure_paths
 
 
@@ -621,12 +661,6 @@ def validate_spines(morphology_path, mesh_path):
                 validation_csv_path,
                 snapshot_validation_state(),
             )
-
-
-    async def generate_stats_async():
-        """Persist current validation state and generate the registration figure."""
-        await wait_for_validation_save()
-        return await asyncio.to_thread(build_stats_figures_from_csv)
 
 
     async def validation_save_worker():
@@ -1017,135 +1051,28 @@ def validate_spines(morphology_path, mesh_path):
         return Path(morphology_path).parent / f'{mesh_id}_{user_token}_{date_time}'
 
 
-    def registration_image_paths():
-        """Return all image files that registration stages as assisting views."""
-        output_dir = Path(morphology_path).parent
-        return sorted(
-            image_path
-            for image_path in output_dir.iterdir()
-            if image_path.is_file()
-            and image_path.suffix.lower() in {'.png', '.jpg', '.jpeg'}
-        )
-
-
-    def registration_summary():
-        """Build a plain-text summary of the current validation assessment."""
-        total_spines = int(morphology.spines.spine_count)
-        validated_count = sum(
-            1
-            for status in validation_results.values()
-            if status in {'valid', 'invalid'}
-        )
-        valid_count = sum(
-            status == 'valid' for status in validation_results.values()
-        )
-        invalid_count = sum(
-            status == 'invalid' for status in validation_results.values()
-        )
-        remaining_count = max(total_spines - validated_count, 0)
-        is_complete = validated_count >= total_spines
-
-        completed_sections = 0
-        for sec_id, spine_count in spiny_sections:
-            section_validated = sum(
-                1
-                for (validated_sec_id, _), status in validation_results.items()
-                if validated_sec_id == sec_id
-                and status in {'valid', 'invalid'}
-            )
-            if section_validated >= spine_count:
-                completed_sections += 1
-
-        section_missing_count = sum(
-            status == 'missing' for status in section_missing_results.values()
-        )
-        section_no_missing_count = sum(
-            status == 'no missing'
-            for status in section_missing_results.values()
-        )
-        section_not_set_count = max(
-            len(spiny_sections)
-            - section_missing_count
-            - section_no_missing_count,
-            0,
-        )
-
-        finding_counts = (
-            ('False Positive Findings', false_positive_results),
-            ('Incomplete Spine Findings', incomplete_spine_results),
-            ('Falsely Extended Spine Findings', false_positive_quality_results),
-            ('Merged Spine Findings', merged_spine_results),
-            ('Split Spine Findings', split_spine_results),
-        )
-        screenshot_count = len(registration_image_paths())
-
-        def format_section(title, rows):
-            """Format a plain-text section that does not depend on whitespace alignment."""
-            lines = [title, '-' * len(title)]
-            lines.extend(
-                f'{label}: {value}'
-                for label, value in rows
-            )
-            return '\n'.join(lines)
-
-        sections = [
-            format_section(
-                'Assessment',
-                [
-                    ('Neuron', Path(mesh_path).stem),
-                    ('User', user_email),
-                ],
-            ),
-            format_section(
-                'Spine Validation',
-                [
-                    ('Total Spines', total_spines),
-                    ('Validation Complete', 'Yes' if is_complete else 'No'),
-                    ('Validated Spines', f'{validated_count}/{total_spines}'),
-                    ('Valid Spines', valid_count),
-                    ('Invalid Spines', invalid_count),
-                    ('Remaining Spines', remaining_count),
-                    ('Assisting Screenshots', screenshot_count),
-                ],
-            ),
-            format_section(
-                'Section Review',
-                [
-                    ('Sections With Spines', len(spiny_sections)),
-                    ('Completed Sections', f'{completed_sections}/{len(spiny_sections)}'),
-                    ('Missing Segmented Spines', section_missing_count),
-                    ('No Missing Segmented Spines', section_no_missing_count),
-                    ('Remaining Sections for Review', section_not_set_count),
-                ],
-            ),
-            format_section(
-                'Review Findings',
-                [
-                    (
-                        label,
-                        sum(status == 'yes' for status in results.values()),
-                    )
-                    for label, results in finding_counts
-                ],
-            ),
-        ]
-        return '\n\n'.join(sections)
-
-
-    def stage_registration_directory(destination):
-        """Copy the validation CSV and all sibling images into an archive directory."""
+    def stage_registration_directory(destination, report_path):
+        """Stage exactly the validation CSV and generated PDF for registration."""
         destination = Path(destination)
+        report_path = Path(report_path)
         destination.mkdir(parents=True, exist_ok=False)
 
         if not validation_csv_path.exists():
             write_validation_csv(validation_csv_path, snapshot_validation_state())
-        shutil.copy2(validation_csv_path, destination / validation_csv_path.name)
+        if not report_path.is_file():
+            raise FileNotFoundError(f'Registration PDF does not exist: {report_path}')
 
-        for image_path in sorted(
-            set(registration_image_paths())
-            | {path for path in stats_figure_paths() if path.exists()}
-        ):
-            shutil.copy2(image_path, destination / image_path.name)
+        csv_destination = destination / validation_csv_path.name
+        pdf_destination = destination / report_path.name
+        shutil.copy2(validation_csv_path, csv_destination)
+        shutil.copy2(report_path, pdf_destination)
+
+        staged_files = {path.name for path in destination.iterdir() if path.is_file()}
+        expected_files = {csv_destination.name, pdf_destination.name}
+        if staged_files != expected_files:
+            raise RuntimeError(
+                f'Registration staging must contain only CSV and PDF; found {sorted(staged_files)}'
+            )
         return destination
 
 
@@ -1173,25 +1100,63 @@ def validate_spines(morphology_path, mesh_path):
 
 
     async def register_assessment_worker():
-        """Stage and upload the current validation assessment without blocking UI."""
+        """Generate the PNG/PDF, package CSV+PDF, and upload the registration."""
         try:
+            registration_status.value = '<i>1/5 Saving validation CSV...</i>'
+            print('[Registration] 1/5 Saving validation CSV...')
             await wait_for_validation_save()
-            for task in (screenshot_save_task[0],):
-                if task is not None and not task.done():
-                    await task
 
-            # Generate the section-validity figure from the latest CSV before staging.
-            await generate_stats_async()
+            screenshot_task = screenshot_save_task[0]
+            if screenshot_task is not None and not screenshot_task.done():
+                registration_status.value = '<i>1/5 Waiting for the latest screenshot...</i>'
+                await screenshot_task
+
+            registration_status.value = '<i>2/5 Generating analysis PNGs...</i>'
+            print('[Registration] 2/5 Generating analysis PNGs...')
+            analysis_paths = await asyncio.to_thread(build_stats_figures_from_csv)
+            missing_analysis_paths = [
+                path for path in analysis_paths
+                if not Path(path).is_file()
+            ]
+            if missing_analysis_paths:
+                raise FileNotFoundError(
+                    f'Analysis PNG generation did not produce: {missing_analysis_paths}'
+                )
+            print(
+                '[Registration] Analysis PNGs: '
+                + ', '.join(Path(path).name for path in analysis_paths)
+            )
 
             destination = registration_identifier()
-            await asyncio.to_thread(stage_registration_directory, destination)
+            source_image_directory = validation_csv_path.parent
+            with tempfile.TemporaryDirectory(prefix='validation_report_') as temporary_directory:
+                report_path = Path(temporary_directory) / (
+                    f'{validation_csv_path.stem}_validation_report.pdf'
+                )
+                registration_status.value = '<i>3/5 Generating PDF report...</i>'
+                print('[Registration] 3/5 Generating PDF report...')
+                await asyncio.to_thread(
+                    create_validation_report_pdf,
+                    source_image_directory,
+                    validation_csv_path,
+                    report_path,
+                    1600,
+                    75,
+                )
 
-            # Keep archive creation/upload in validate_spines_registration.py.
+                registration_status.value = '<i>4/5 Creating CSV+PDF ZIP...</i>'
+                print('[Registration] 4/5 Staging CSV and PDF...')
+                await asyncio.to_thread(
+                    stage_registration_directory,
+                    destination,
+                    report_path,
+                )
+
             upload_zip, helper_path = load_registration_uploader()
             print(f'[Registration] Using helper: {helper_path}')
-
-            message = registration_summary()
-            print(f'[Registration] Assessment summary:\n{message}')
+            registration_status.value = '<i>5/5 Uploading CSV+PDF ZIP...</i>'
+            print('[Registration] 5/5 Creating ZIP and uploading...')
+            message = 'Validation CSV and PDF report registration'
             result = await asyncio.to_thread(
                 upload_zip,
                 str(destination),
