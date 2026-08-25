@@ -3,6 +3,7 @@ from morph_spines import load_morphology_with_spines
 import obi_auth
 import pylmesh
 
+import os
 from entitysdk import Client, types, models
 from obi_one import CellMorphologyFromID
 from entitysdk.models import EMCellMesh, EMDenseReconstructionDataset, CellMorphology
@@ -44,6 +45,23 @@ def display_neurons(client, sel_em, neuron_id="PASTE ID IN HERE"):
         display(sel_nrn)
     return sel_nrn
 
+from contextlib import contextmanager
+@contextmanager
+def suppress_output():
+    with open(os.devnull, "w") as devnull:
+        old_stdout = os.dup(1)
+        old_stderr = os.dup(2)
+
+        try:
+            os.dup2(devnull.fileno(), 1)
+            os.dup2(devnull.fileno(), 2)
+            yield
+        finally:
+            os.dup2(old_stdout, 1)
+            os.dup2(old_stderr, 2)
+            os.close(old_stdout)
+            os.close(old_stderr)
+                        
 def download_data(client, sel_nrn):
 
     morphology_id = None
@@ -66,7 +84,9 @@ def download_data(client, sel_nrn):
 
     # Load spiny neuron
     morphology.write_spiny_neuron_h5(path_to=neuron_path, db_client=client)
-    m = load_morphology_with_spines(neuron_path, load_meshes=True)
+
+    with suppress_output():
+        m = load_morphology_with_spines(neuron_path, load_meshes=True)
 
     # Download and load mesh
     mesh = morphology.source_mesh_entity(db_client=client)
