@@ -2,7 +2,7 @@ import asyncio
 import base64
 import colorsys
 import csv
-import getpass
+import html
 import importlib
 import os
 import re
@@ -137,10 +137,12 @@ class _MeshSurfaceSampler:
 
 def validate_spines(morphology_path, mesh_path):
 
-    # Load the spiny morphology
+    # Load the spiny morphology and capture the assessment identity once so all
+    # displayed and registered assessment metadata uses the same user value.
     morphology = data_loading.load_spiny_morphology(morphology_path)
-    print(f"Loaded morphology with {len(list(morphology.morphology.sections))} sections")
-    print(f"Total spines: {morphology.spines.spine_count}")
+    morphology_section_count = len(list(morphology.morphology.sections))
+    total_spines = int(morphology.spines.spine_count)
+    user_email = os.environ.get('OBI_USERNAME', 'unknown-user')
 
     # Extra surface sampling remains available as an opt-in mode. Keep the
     # default at zero to preserve the faster exact-vertex point-cloud density.
@@ -171,18 +173,53 @@ def validate_spines(morphology_path, mesh_path):
         _MeshSurfaceSampler(full_mesh_vertices, full_mesh_faces)
         if SECTION_DENSE_SAMPLE_MULTIPLIER > 0 else None
     )
-    section_point_rng = np.random.default_rng(2024)
-    print(
-        f'Mesh point cloud: {mesh_vertices.shape[0]} points '
-        f'({GLOBAL_MESH_SAMPLE_FRACTION:.0%} global sample; '
-        f'{full_mesh_vertices.shape[0]} full-resolution vertices indexed)'
-    )
-
     # Get sections that have spines
     section_ids_with_counts = spines_lib.get_section_ids_with_spine_counts_for_sections_with_spines(
         morphology=morphology
     )
-    print(f"Sections with spines: {len(section_ids_with_counts)}")
+    spiny_section_count = len(section_ids_with_counts)
+    spines_in_spiny_sections = sum(
+        spine_count for _, spine_count in section_ids_with_counts
+    )
+    sections_with_spines_percent = (
+        spiny_section_count / morphology_section_count
+        if morphology_section_count else 0.0
+    )
+    average_spines_per_spiny_section = (
+        spines_in_spiny_sections / spiny_section_count
+        if spiny_section_count else 0.0
+    )
+
+    print()
+    print('Validation Dataset')
+    print('------------------')
+    print(f'Morphology: {Path(morphology_path).name}')
+    print(f'Mesh: {Path(mesh_path).name}')
+    print(
+        f'Sections: {morphology_section_count:,} total | '
+        f'{spiny_section_count:,} with spines '
+        f'({sections_with_spines_percent:.1%})'
+    )
+    print(f'Total spines: {total_spines:,}')
+    print(
+        f'Spines represented in spiny sections: '
+        f'{spines_in_spiny_sections:,}'
+    )
+    print(
+        f'Average spines per spiny section: '
+        f'{average_spines_per_spiny_section:.1f}'
+    )
+    print()
+    print('Mesh Data')
+    print('---------')
+    print(
+        f'Indexed vertices: {full_mesh_vertices.shape[0]:,}'
+    )
+    print(
+        f'Displayed vertices: {mesh_vertices.shape[0]:,} '
+        f'({GLOBAL_MESH_SAMPLE_FRACTION:.0%} sample)'
+    )
+    print()
 
     # ============================================================
     # Create K3D plot
@@ -194,6 +231,7 @@ def validate_spines(morphology_path, mesh_path):
         camera_mode='trackball',
         camera_up_axis='y',
         background_color=0xffffff,
+        height=800,
     )
 
     # Add the sampled mesh context and a separate, initially hidden, local cloud.
@@ -215,15 +253,31 @@ def validate_spines(morphology_path, mesh_path):
     plot += global_point_cloud
     plot += section_point_cloud
 
-    # Add full morphology as centerlines
-    k3d_core.add_morphology_to_plot(
-        morphology=morphology,
-        plot=plot,
-        line_color=0x888888
-    )
-
-    # Get section points for highlighting
+    # Add finite gray morphology centerlines. NaN-separated K3D lines can blank
+    # the WebGL scene in K3D 2.18.1, so keep each section finite and independent.
     sections_points = geometry.get_sections_points(morphology)
+    section_lines = []
+    for sec_id, points in sections_points.items():
+        section_line = k3d.line(
+            np.asarray(points, dtype=np.float32),
+            width=1.5,
+            color=0x888888,
+            shader='simple',
+            name=f'Morphology section {sec_id}',
+        )
+        plot += section_line
+        section_lines.append(section_line)
+
+    # Reuse one focused overlay for every selected section.
+    section_centerline_overlay = k3d.line(
+        np.zeros((2, 3), dtype=np.float32),
+        width=9.0,
+        color=0xFF0000,
+        shader='simple',
+        name='Selected morphology section',
+    )
+    section_centerline_overlay.visible = False
+    plot += section_centerline_overlay
 
     # Compute morphology bounds for initial camera
     _, _, morph_center, morph_extent, morph_radius = geometry.compute_morphology_bounds(morphology)
@@ -245,8 +299,7 @@ def validate_spines(morphology_path, mesh_path):
     current_spine_colors = []       # Palette colors aligned with displayed spine meshes
     previous_colored_spine_idx = [None]
     spine_colors_initialized = [False]
-    highlighted_section_line = [None]
-    section_centerline_k3d = [None]
+    section_centerline_k3d = [section_centerline_overlay]
     loading_task = [None]
     load_generation = [0]
 
@@ -365,7 +418,7 @@ def validate_spines(morphology_path, mesh_path):
         """Read and validate a saved validation snapshot."""
         path = Path(path)
         if not path.exists():
-            return {}, {}, {}, {}
+            return {}, {}, {}, {}, {}, {}, {}
 
         section_counts = dict(spiny_sections)
         loaded_spines = {}
@@ -443,6 +496,137 @@ def validate_spines(morphology_path, mesh_path):
             loaded_split_spines,
             loaded_sections,
         )
+
+
+    def stats_figure_paths():
+        """Return the deterministic path for the section-validity figure."""
+        stem = validation_csv_path.stem
+        return [
+            validation_csv_path.with_name(f'{stem}_section_validity.png'),
+        ]
+
+
+    def build_stats_figures_from_csv():
+        """Generate the section-validity figure from the persisted validation CSV."""
+        try:
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+            from matplotlib.font_manager import FontProperties
+        except ImportError as exc:
+            raise RuntimeError(
+                'Generating assessment statistics requires matplotlib.'
+            ) from exc
+
+        font_path = (
+            Path(__file__).resolve().parent / 'assets' / 'fonts' / 'Arimo-Regular.ttf'
+            if '__file__' in globals()
+            else Path.cwd() / 'examples' / 'assets' / 'fonts' / 'Arimo-Regular.ttf'
+        )
+        if not font_path.is_file():
+            raise RuntimeError(f'Bundled assessment font not found: {font_path}')
+        axis_label_font = FontProperties(fname=str(font_path))
+
+        if not validation_csv_path.exists():
+            write_validation_csv(validation_csv_path, snapshot_validation_state())
+
+        (
+            loaded_spines,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+        ) = read_validation_csv(validation_csv_path)
+
+        section_ids = [section_id for section_id, _ in spiny_sections]
+        section_counts = dict(spiny_sections)
+        valid_by_section = {
+            section_id: sum(
+                status == 'valid'
+                for (saved_section_id, _), status in loaded_spines.items()
+                if saved_section_id == section_id
+            )
+            for section_id in section_ids
+        }
+        invalid_by_section = {
+            section_id: sum(
+                status == 'invalid'
+                for (saved_section_id, _), status in loaded_spines.items()
+                if saved_section_id == section_id
+            )
+            for section_id in section_ids
+        }
+        unset_by_section = {
+            section_id: max(
+                section_counts[section_id]
+                - valid_by_section[section_id]
+                - invalid_by_section[section_id],
+                0,
+            )
+            for section_id in section_ids
+        }
+
+        figure_paths = stats_figure_paths()
+        obsolete_figure_paths = [
+            validation_csv_path.with_name(f'{validation_csv_path.stem}_overview.png'),
+            validation_csv_path.with_name(f'{validation_csv_path.stem}_findings.png'),
+            validation_csv_path.with_name(f'{validation_csv_path.stem}_finding_heatmap.png'),
+            validation_csv_path.with_name(f'{validation_csv_path.stem}_section_review.png'),
+        ]
+        for figure_path in [*figure_paths, *obsolete_figure_paths]:
+            if figure_path.exists():
+                figure_path.unlink()
+
+
+        # Per-section validity composition.
+        figure, axis = plt.subplots(
+            figsize=(max(11, len(section_ids) * 0.24), 6)
+        )
+        bottoms = np.zeros(len(section_ids))
+        for label, values, color in (
+            ('Valid Spines', [valid_by_section[s] for s in section_ids], '#188038'),
+            ('Invalid Spines', [invalid_by_section[s] for s in section_ids], '#c5221f'),
+            ('Not Set Spines', [unset_by_section[s] for s in section_ids], '#f29900'),
+        ):
+            axis.bar(section_ids, values, bottom=bottoms, label=label, color=color)
+            bottoms += np.asarray(values)
+        axis.set_title('Spine Validity by Section')
+        axis.set_xlabel('Section ID', fontproperties=axis_label_font)
+        axis.set_ylabel('Spine Count', fontproperties=axis_label_font)
+        axis.legend()
+        axis.grid(axis='y', alpha=0.25)
+        if len(section_ids) > 30:
+            axis.set_xticks(section_ids[::max(1, len(section_ids) // 20)])
+        figure.tight_layout()
+        figure.savefig(figure_paths[0], dpi=150, bbox_inches='tight')
+        plt.close(figure)
+
+        return figure_paths
+
+
+    async def wait_for_validation_save():
+        """Wait for pending CSV persistence and guarantee a current CSV exists."""
+        task = validation_save_task[0]
+        if task is not None and not task.done():
+            await task
+        if pending_validation_snapshot[0] is not None:
+            rows = pending_validation_snapshot[0]
+            pending_validation_snapshot[0] = None
+            await asyncio.to_thread(write_validation_csv, validation_csv_path, rows)
+        elif not validation_csv_path.exists():
+            await asyncio.to_thread(
+                write_validation_csv,
+                validation_csv_path,
+                snapshot_validation_state(),
+            )
+
+
+    async def generate_stats_async():
+        """Persist current validation state and generate the registration figure."""
+        await wait_for_validation_save()
+        return await asyncio.to_thread(build_stats_figures_from_csv)
 
 
     async def validation_save_worker():
@@ -828,7 +1012,9 @@ def validate_spines(morphology_path, mesh_path):
         """Return a mesh-ID/date-time directory for this assessment."""
         mesh_id = Path(mesh_path).stem
         date_time = datetime.now(timezone.utc).strftime('%y.%m.%d_%H.%M')
-        return Path(morphology_path).parent / f'{mesh_id}_{getpass.getuser()}_{date_time}'
+        user_token = re.sub(r'[^A-Za-z0-9_.-]+', '_', user_email).strip('._-')
+        user_token = user_token or 'unknown-user'
+        return Path(morphology_path).parent / f'{mesh_id}_{user_token}_{date_time}'
 
 
     def registration_image_paths():
@@ -907,7 +1093,7 @@ def validate_spines(morphology_path, mesh_path):
                 'Assessment',
                 [
                     ('Neuron', Path(mesh_path).stem),
-                    ('User', getpass.getuser()),
+                    ('User', user_email),
                 ],
             ),
             format_section(
@@ -955,7 +1141,10 @@ def validate_spines(morphology_path, mesh_path):
             write_validation_csv(validation_csv_path, snapshot_validation_state())
         shutil.copy2(validation_csv_path, destination / validation_csv_path.name)
 
-        for image_path in registration_image_paths():
+        for image_path in sorted(
+            set(registration_image_paths())
+            | {path for path in stats_figure_paths() if path.exists()}
+        ):
             shutil.copy2(image_path, destination / image_path.name)
         return destination
 
@@ -986,9 +1175,13 @@ def validate_spines(morphology_path, mesh_path):
     async def register_assessment_worker():
         """Stage and upload the current validation assessment without blocking UI."""
         try:
-            for task in (validation_save_task[0], screenshot_save_task[0]):
+            await wait_for_validation_save()
+            for task in (screenshot_save_task[0],):
                 if task is not None and not task.done():
                     await task
+
+            # Generate the section-validity figure from the latest CSV before staging.
+            await generate_stats_async()
 
             destination = registration_identifier()
             await asyncio.to_thread(stage_registration_directory, destination)
@@ -1011,14 +1204,18 @@ def validate_spines(morphology_path, mesh_path):
                     f'Registered: {destination.name}</span>'
                 )
             else:
-                registration_status.value = (
-                    '<span style="color:#c5221f">Registration upload failed.</span>'
-                )
                 error = result.get('error') if isinstance(result, dict) else result
+                safe_error = html.escape(str(error))
+                registration_status.value = (
+                    f'<span style="color:#c5221f">'
+                    f'Registration upload failed: {safe_error}</span>'
+                )
                 print(f'Registration upload failed: {error}')
         except Exception as exc:
+            error_detail = html.escape(f'{type(exc).__name__}: {exc}')
             registration_status.value = (
-                '<span style="color:#c5221f">Registration failed.</span>'
+                f'<span style="color:#c5221f">'
+                f'Registration failed: {error_detail}</span>'
             )
             destination_name = locals().get('destination', '<not staged>')
             print(
@@ -1102,30 +1299,25 @@ def validate_spines(morphology_path, mesh_path):
 
 
     def clear_section_centerline():
-        """Remove the selected section's highlighted centerline."""
-        if section_centerline_k3d[0] is not None:
-            try:
-                remove_from_plot(section_centerline_k3d[0])
-            except Exception:
-                pass
-            section_centerline_k3d[0] = None
-
+        """Hide the reusable selected-section centerline overlay."""
+        section_centerline_overlay.visible = False
 
     def show_section_centerline(sec_id):
-        """Show the selected section centerline as a thick red line."""
-        clear_section_centerline()
+        """Update and show the reusable selected-section red overlay."""
         if sec_id not in sections_points:
+            clear_section_centerline()
             return
 
-        centerline = sections_points[sec_id]
-        section_centerline_obj = k3d.line(
-            centerline,
-            width=SECTION_CENTERLINE_WIDTH,
-            color=SECTION_CENTERLINE_HOT_COLOR if background_is_black[0] else SECTION_CENTERLINE_COLOR,
-            shader='simple',
+        section_centerline_overlay.vertices = np.asarray(
+            sections_points[sec_id], dtype=np.float32
         )
-        add_to_plot(section_centerline_obj)
-        section_centerline_k3d[0] = section_centerline_obj
+        section_centerline_overlay.color = (
+            SECTION_CENTERLINE_HOT_COLOR
+            if background_is_black[0]
+            else SECTION_CENTERLINE_COLOR
+        )
+        section_centerline_overlay.width = SECTION_CENTERLINE_WIDTH
+        section_centerline_overlay.visible = True
 
 
     def clear_spine_meshes():
@@ -1155,14 +1347,6 @@ def validate_spines(morphology_path, mesh_path):
         clear_section_centerline()
         hide_bbox()
 
-        # Remove the previous section highlight.
-        if highlighted_section_line[0] is not None:
-            try:
-                remove_from_plot(highlighted_section_line[0])
-            except Exception:
-                pass
-            highlighted_section_line[0] = None
-
         sec_id, spine_count = spiny_sections[sec_idx]
         current_spine_idx[0] = 0
         spine_selected[0] = False
@@ -1176,12 +1360,7 @@ def validate_spines(morphology_path, mesh_path):
             sec_radius = max(float(np.linalg.norm(pts_max - pts_min)) * 0.6, 1e-6)
             set_camera_on(sec_center, sec_radius)
 
-            # The centerline is deliberately a simple line, not a mesh-shaded object.
-            hl = k3d.line(pts, width=0.3, color=0xFF4444, shader='simple')
-            add_to_plot(hl)
-            highlighted_section_line[0] = hl
-
-        # Highlight the selected section centerline before spine meshes appear.
+        # Draw the selected section on top of the gray base lines.
         show_section_centerline(sec_id)
 
         update_info()
@@ -1467,7 +1646,6 @@ def validate_spines(morphology_path, mesh_path):
         # Check if current spine already validated.
         key = (sec_id, spine_idx)
         status = validity_status(key)
-        status_color = {'valid': 'green', 'invalid': 'red'}.get(status, 'gray')
         # Current section validation progress.
         section_validated = sum(
             1
@@ -1476,7 +1654,6 @@ def validate_spines(morphology_path, mesh_path):
             and validation_status in {'valid', 'invalid'}
         )
         section_complete = section_validated >= spine_count
-        section_progress_color = '#188038' if section_complete else '#b06000'
 
         # Overall validation progress across sections containing spines.
         total_spines = sum(
@@ -1500,8 +1677,18 @@ def validate_spines(morphology_path, mesh_path):
         )
         sections_complete = validated_sections == len(spiny_sections)
         spines_complete = validated_spines == total_spines
-        sections_progress_color = '#188038' if sections_complete else '#b06000'
-        spines_progress_color = '#188038' if spines_complete else '#b06000'
+
+        status_colors = {
+            'valid': '#188038',
+            'invalid': '#c5221f',
+            VALIDITY_NOT_SET: '#f29900',
+        }
+        section_status_color = '#188038' if section_complete else '#c5221f'
+        section_spines_color = (
+            '#188038' if section_validated >= spine_count else '#b06000'
+        )
+        sections_progress_color = '#188038' if sections_complete else '#f29900'
+        spines_progress_color = '#188038' if spines_complete else '#f29900'
 
         info_label.value = (
             '<b>Current Section Status</b> '
@@ -1509,15 +1696,16 @@ def validate_spines(morphology_path, mesh_path):
             'style="cursor:help; color:#5f6368;">&#9432;</span>'
             f'<br><b>Section {sec_id}</b> ({sec_idx + 1}/{len(spiny_sections)}) '
             f'| Spine <b>{spine_idx + 1}/{n_loaded}</b> '
-            f'| Validity: <span style="color:{status_color}"><b>{status.title()}</b></span>'
+            f'| Validity: '
+            f'<span style="color:{status_colors[status]}"><b>{status.title()}</b></span>'
             f'<br>Section Validated: '
-            f'<span style="color:{section_progress_color}"><b>{"Yes" if section_complete else "No"}</b></span>'
+            f'<span style="color:{section_status_color}"><b>{"Yes" if section_complete else "No"}</b></span>'
             f' | Section Spines Validated: '
-            f'<span style="color:{section_progress_color}"><b>{section_validated}/{spine_count}</b></span>'
+            f'<span style="color:{section_spines_color}"><b>{section_validated}/{spine_count}</b></span>'
             '<br><b>Overall Status</b> '
             '<span title="This section summarizes the overall status of all the sections and spines. '
-            'Once the colors are green, this indicates that all the sections are analyzed and '
-            'the results are ready to be registered." '
+            'This summarizes whether all sections have been analyzed and the results '
+            'are ready to be registered." '
             'style="cursor:help; color:#5f6368;">&#9432;</span>'
             f'<br>Sections Validated: '
             f'<span style="color:{sections_progress_color}"><b>{validated_sections}/{len(spiny_sections)}</b></span>'
@@ -1726,10 +1914,11 @@ def validate_spines(morphology_path, mesh_path):
             if background_is_black[0]
             else SECTION_CENTERLINE_COLOR
         )
-        if section_centerline_k3d[0] is not None:
+        base_line_color = 0xA0A0A0 if background_is_black[0] else 0x888888
+        for section_line in section_lines:
+            section_line.color = base_line_color
+        if section_centerline_k3d[0].visible:
             section_centerline_k3d[0].color = centerline_color
-        if highlighted_section_line[0] is not None:
-            highlighted_section_line[0].color = centerline_color
         if background_is_black[0]:
             plot.background_color = 0x000000
             btn_toggle_background.description = 'White Background'
@@ -1906,10 +2095,20 @@ def validate_spines(morphology_path, mesh_path):
     registration_status = widgets.HTML(value='')
 
     btn_missing_spines = widgets.Button(
-        description='Missing Spines', button_style='danger', icon='warning'
+        description='Missing Spines', button_style='danger', icon='warning',
+        layout=widgets.Layout(
+            width=navigation_button_width,
+            min_width=navigation_button_width,
+            max_width=navigation_button_width,
+        ),
     )
     btn_no_missing_spines = widgets.Button(
-        description='No Missing Spines', button_style='success', icon='check'
+        description='No Missing Spines', button_style='success', icon='check',
+        layout=widgets.Layout(
+            width=navigation_button_width,
+            min_width=navigation_button_width,
+            max_width=navigation_button_width,
+        ),
     )
 
     btn_xy = widgets.Button(description='XY', layout=widgets.Layout(width='90px'))
@@ -2025,7 +2224,6 @@ def validate_spines(morphology_path, mesh_path):
     stats_output = widgets.Output(
         layout=widgets.Layout(border='1px solid #ddd', padding='8px', width='100%')
     )
-
     # Section dropdown
     def build_section_dropdown_options():
         """Build dropdown options with validation status."""
@@ -2047,7 +2245,7 @@ def validate_spines(morphology_path, mesh_path):
 
     section_dropdown = widgets.Dropdown(
         options=build_section_dropdown_options(),
-        value=0,
+        value=0 if spiny_sections else None,
         description='',
         style={'description_width': 'initial'},
         layout=widgets.Layout(width='320px')
@@ -2376,9 +2574,8 @@ def validate_spines(morphology_path, mesh_path):
 
     registration_controls = widgets.VBox([
         widgets.HTML(value=(
-            '<b>Assessment Registration</b> '
-            '<span title="Once all the sections and spines are validated, click the Register button '
-            'to register the assessment results." '
+            '<b>Assessment</b> '
+            '<span title="Click Register to generate the section-validity figure and register the assessment results." '
             'style="cursor:help; color:#5f6368;">&#9432;</span>'
         )),
         btn_register_assessment,
@@ -2424,6 +2621,10 @@ def validate_spines(morphology_path, mesh_path):
     ]
 
     # Display immediately, then restore saved labels before loading the first section.
-    display(widgets.VBox([controls, plot, stats_output]))
+    #display(widgets.VBox([controls, plot, stats_output]))
+    display(controls)
+    plot.display()
+    display(stats_output)
+
     restore_task = asyncio.create_task(restore_and_start())
     restore_task.add_done_callback(report_validation_restore_error)
