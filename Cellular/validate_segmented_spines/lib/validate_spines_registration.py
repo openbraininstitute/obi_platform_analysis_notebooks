@@ -29,7 +29,7 @@ UPLOAD_URL = (
 )
 
 DEFAULT_DRIVE_FOLDER = "archives"
-
+UPLOAD_TIMEOUT_SECONDS = 60 * 60
 
 # =============================================================================
 # Timestamp / identifier
@@ -440,7 +440,7 @@ def upload_file(
     response = requests.post(
         UPLOAD_URL,
         json=payload,
-        timeout=120,
+        timeout=UPLOAD_TIMEOUT_SECONDS,
     )
 
     response.raise_for_status()
