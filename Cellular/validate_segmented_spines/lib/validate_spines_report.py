@@ -120,6 +120,11 @@ def create_validation_report_pdf(
             "Merged Spines", "Split Spines", "Missing Segmented Spines",
         ]
         spine_fields = [
+            "Section ID", "Local Spine ID", "Global Spine ID", "Validity",
+            "False Positive", "Incomplete Spine", "Falsely Extended Spine",
+            "Merged Spine", "Split Spine",
+        ]
+        legacy_spine_fields = [
             "Section ID", "Spine ID", "Validity", "False Positive",
             "Incomplete Spine", "Falsely Extended Spine", "Merged Spine",
             "Split Spine",
@@ -127,8 +132,14 @@ def create_validation_report_pdf(
         if rows[1] != section_marker or rows[2] != section_fields:
             raise ValueError(f"Invalid section table in {validation_csv_path}")
         spine_marker_index = rows.index(spine_marker)
-        if rows[spine_marker_index + 1] != spine_fields:
+        spine_header = rows[spine_marker_index + 1]
+        if spine_header not in (spine_fields, legacy_spine_fields):
             raise ValueError(f"Invalid spine table in {validation_csv_path}")
+        explicit_identity = spine_header == spine_fields
+        spine_field_indices = {
+            field_name: spine_header.index(field_name)
+            for field_name in spine_header
+        }
         error_columns = {
             "False Positive": "False Positive",
             "Incomplete Spine": "Incomplete Spine",
@@ -140,12 +151,14 @@ def create_validation_report_pdf(
             if row[9].strip().lower() == "missing":
                 missing_section_ids.add(int(row[0]))
         for row in rows[spine_marker_index + 2:]:
-            section_id = int(row[0])
-            spine_id = int(row[1])
+            section_id = int(row[spine_field_indices["Section ID"]])
+            spine_id = int(row[spine_field_indices[
+                "Global Spine ID" if explicit_identity else "Spine ID"
+            ]])
             labels = [
                 label
                 for column, label in error_columns.items()
-                if row[spine_fields.index(column)].strip().lower() == "yes"
+                if row[spine_field_indices[column]].strip().lower() == "yes"
             ]
             if labels:
                 issue_labels[(section_id, spine_id)] = "; ".join(labels)

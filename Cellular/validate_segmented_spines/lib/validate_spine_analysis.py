@@ -1,6 +1,5 @@
 from pathlib import Path
 from io import BytesIO
-from pathlib import Path
 import csv
 import re
 
@@ -30,12 +29,22 @@ def _load_validation_records(csv_path):
         raise ValueError(f'Invalid validation table in {csv_path}') from exc
 
     expected_spine_header = [
+        'Section ID', 'Local Spine ID', 'Global Spine ID', 'Validity',
+        'False Positive', 'Incomplete Spine', 'Falsely Extended Spine',
+        'Merged Spine', 'Split Spine',
+    ]
+    legacy_spine_header = [
         'Section ID', 'Spine ID', 'Validity', 'False Positive',
         'Incomplete Spine', 'Falsely Extended Spine', 'Merged Spine',
         'Split Spine',
     ]
-    if spine_header != expected_spine_header:
+    if spine_header not in (expected_spine_header, legacy_spine_header):
         raise ValueError(f'Unexpected spine table headers in {csv_path}')
+    explicit_identity = spine_header == expected_spine_header
+    spine_field_indices = {
+        field_name: spine_header.index(field_name)
+        for field_name in spine_header
+    }
 
     records = []
     for row in rows[3:spine_marker_index]:
@@ -50,34 +59,39 @@ def _load_validation_records(csv_path):
         })
 
     issue_columns = {
-        3: 'false_positive',
-        4: 'incomplete_spine',
-        5: 'false_positive_quality',
-        6: 'merged_spine',
-        7: 'split_spine',
+        'False Positive': 'false_positive',
+        'Incomplete Spine': 'incomplete_spine',
+        'Falsely Extended Spine': 'false_positive_quality',
+        'Merged Spine': 'merged_spine',
+        'Split Spine': 'split_spine',
     }
     spine_indices = {}
     for row in rows[spine_marker_index + 2:]:
-        if len(row) != len(expected_spine_header):
+        if len(row) != len(spine_header):
             raise ValueError(f'Invalid spine row in {csv_path}')
-        section_id = row[0]
-        spine_id = row[1]
-        spine_index = spine_indices.get(section_id, 0)
+        section_id = row[spine_field_indices['Section ID']]
+        global_spine_id = row[spine_field_indices[
+            'Global Spine ID' if explicit_identity else 'Spine ID'
+        ]]
+        if explicit_identity:
+            spine_index = int(row[spine_field_indices['Local Spine ID']])
+        else:
+            spine_index = spine_indices.get(section_id, 0)
         spine_indices[section_id] = spine_index + 1
         records.append({
             'record_type': 'spine',
             'section_id': section_id,
             'spine_index': spine_index,
-            'spine_id': spine_id,
-            'status': row[2].strip().lower(),
+            'spine_id': global_spine_id,
+            'status': row[spine_field_indices['Validity']].strip().lower(),
         })
-        for column_index, record_type in issue_columns.items():
+        for field_name, record_type in issue_columns.items():
             records.append({
                 'record_type': record_type,
                 'section_id': section_id,
                 'spine_index': spine_index,
-                'spine_id': spine_id,
-                'status': row[column_index].strip().lower(),
+                'spine_id': global_spine_id,
+                'status': row[spine_field_indices[field_name]].strip().lower(),
             })
 
     return pd.DataFrame(
@@ -91,8 +105,8 @@ def generate_report(
     csv_path,
     fonts_dir,
     output_dir,
-    render_dpi=72,
-    export_dpi=72,
+    render_dpi=150,
+    export_dpi=150,
     snapshot_jpeg_quality=75,
 ):
     """Generate the combined analysis PDF report.
@@ -151,6 +165,16 @@ def generate_report(
     spine_rows['section_id'] = pd.to_numeric(
         spine_rows['section_id'], errors='raise'
     ).astype(int)
+    spine_rows['spine_index'] = pd.to_numeric(
+        spine_rows['spine_index'], errors='raise'
+    ).astype(int)
+    spine_rows['spine_id'] = pd.to_numeric(
+        spine_rows['spine_id'], errors='raise'
+    ).astype(int)
+    spine_identity = {
+        (int(row.section_id), int(row.spine_id)): int(row.spine_index)
+        for row in spine_rows.itertuples()
+    }
     raw_status = spine_rows['status'].fillna('').astype(str).str.strip().str.lower()
     status_aliases = {
         'valid': 'valid',
@@ -282,16 +306,17 @@ def generate_report(
     if 'spine_id' not in error_rows:
         error_rows['spine_id'] = error_rows['spine_index']
     error_rows['spine_id'] = pd.to_numeric(error_rows['spine_id'], errors='coerce')
-    issue_labels = {}
-    confirmed_error_rows = error_rows.loc[error_rows['status'].eq('yes')].dropna(
-        subset=['spine_id']
-    )
+    confirmed_error_rows = error_rows.loc[
+        error_rows['status'].eq('yes')
+    ].dropna(subset=['spine_id'])
+    error_labels_by_spine = {}
     for (section_id, spine_id), grouped_rows in confirmed_error_rows.groupby(
         ['section_id', 'spine_id'], sort=False
     ):
-        issue_labels[(int(section_id), int(spine_id))] = '; '.join(
+        error_labels_by_spine[(int(section_id), int(spine_id))] = '; '.join(
             error_type_labels[record_type]
-            for record_type in grouped_rows['record_type']
+            for record_type in error_type_keys
+            if record_type in set(grouped_rows['record_type'])
         )
     error_counts = pd.DataFrame(
         0, index=section_ids, columns=error_type_keys, dtype='int64'
@@ -433,11 +458,12 @@ def generate_report(
         report.savefig(page, dpi=export_dpi, facecolor='white')
         plt.close(page)
 
-    def add_snapshot_page(report, image_path, title):
+    def add_snapshot_page(report, image_path, title, page_text=None):
         """Append one titled JPEG-compressed snapshot image to the report."""
         jpeg_buffer = BytesIO()
         with PILImage.open(image_path) as source_image:
-            source_image.convert('RGB').save(
+            image = source_image.convert('RGB')
+            image.save(
                 jpeg_buffer,
                 format='JPEG',
                 quality=snapshot_jpeg_quality,
@@ -452,6 +478,11 @@ def generate_report(
             0.04, 0.965, title, fontsize=title_fontsize, color='black',
             ha='left', va='top'
         )
+        if page_text:
+            page.text(
+                0.04, 0.925, page_text, fontsize=11, color='black',
+                ha='left', va='top'
+            )
         axis = page.add_axes([0.04, 0.04, 0.92, 0.86])
         axis.imshow(image)
         axis.axis('off')
@@ -477,11 +508,21 @@ def generate_report(
             f'{len(spine_snapshots)} snapshots of detailed spine issues',
         )
         for section_id, spine_id, snapshot_id, image_path in spine_snapshots:
-            title = f'Section {section_id}, Spine {spine_id}, Snapshot {snapshot_id}'
-            issue_text = issue_labels.get((section_id, spine_id))
-            if issue_text:
-                title += f'\nErrors: {issue_text}'
-            add_snapshot_page(report, image_path, title)
+            local_id = spine_identity[(section_id, spine_id)]
+            title = (
+                f'Section {section_id}, Spine {local_id} ({spine_id}), '
+                f'Snapshot {snapshot_id}'
+            )
+            error_text = error_labels_by_spine.get(
+                (section_id, spine_id),
+                'None recorded',
+            )
+            add_snapshot_page(
+                report,
+                image_path,
+                title,
+                page_text=f'Errors: {error_text}',
+            )
 
     return combined_pdf_path
 

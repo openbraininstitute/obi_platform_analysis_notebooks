@@ -83,9 +83,9 @@ def _migrate_legacy_validation_csv(validation_csv_path, morphology):
         'Merged Spines', 'Split Spines', 'Missing Segmented Spines',
     ]
     spine_fields = [
-        'Section ID', 'Spine ID', 'Validity', 'False Positive',
-        'Incomplete Spine', 'Falsely Extended Spine', 'Merged Spine',
-        'Split Spine',
+        'Section ID', 'Local Spine ID', 'Global Spine ID', 'Validity',
+        'False Positive', 'Incomplete Spine', 'Falsely Extended Spine',
+        'Merged Spine', 'Split Spine',
     ]
     issue_columns = (
         ('False Positive', 'false_positive'),
@@ -135,6 +135,7 @@ def _migrate_legacy_validation_csv(validation_csv_path, morphology):
                     key = (section_id, spine_index)
                     writer.writerow([
                         section_id,
+                        spine_index,
                         int(spine_id),
                         validity.get(key, 'Not Set').title(),
                         *[
@@ -490,6 +491,11 @@ def validate_spines(morphology_path, mesh_path):
         'Merged Spines', 'Split Spines', 'Missing Segmented Spines',
     ]
     SPINE_CSV_FIELDS = [
+        'Section ID', 'Local Spine ID', 'Global Spine ID', 'Validity',
+        'False Positive', 'Incomplete Spine', 'Falsely Extended Spine',
+        'Merged Spine', 'Split Spine',
+    ]
+    LEGACY_SPINE_CSV_FIELDS = [
         'Section ID', 'Spine ID', 'Validity', 'False Positive',
         'Incomplete Spine', 'Falsely Extended Spine', 'Merged Spine',
         'Split Spine',
@@ -550,7 +556,8 @@ def validate_spines(morphology_path, mesh_path):
                 key = (sec_id, spine_idx)
                 spine_rows.append({
                     'Section ID': sec_id,
-                    'Spine ID': int(spine_id),
+                    'Local Spine ID': spine_idx,
+                    'Global Spine ID': int(spine_id),
                     'Validity': validation_results.get(key, 'Not Set').title(),
                     'False Positive': false_positive_results.get(key, 'Not Set').title(),
                     'Incomplete Spine': incomplete_spine_results.get(key, 'Not Set').title(),
@@ -690,13 +697,22 @@ def validate_spines(morphology_path, mesh_path):
             if row_index >= len(rows) or rows[row_index] != ['table', 'spine']:
                 raise ValueError(f'Missing spine table marker in {path}')
             row_index += 1
-            if row_index >= len(rows) or rows[row_index] != SPINE_CSV_FIELDS:
+            spine_header = rows[row_index] if row_index < len(rows) else None
+            if (
+                spine_header != SPINE_CSV_FIELDS
+                and spine_header != LEGACY_SPINE_CSV_FIELDS
+            ):
                 raise ValueError(f'Unexpected spine table headers in {path}')
             row_index += 1
             spine_ids_by_section = {
                 sec_id: list(morphology.spines.spine_indices_for_section(sec_id + 1))
                 for sec_id in section_counts
             }
+            spine_field_indices = {
+                field_name: spine_header.index(field_name)
+                for field_name in spine_header
+            }
+            has_explicit_local_id = spine_header == SPINE_CSV_FIELDS
             seen_spines = set()
             field_targets = {
                 'False Positive': 'false_positive',
@@ -707,31 +723,46 @@ def validate_spines(morphology_path, mesh_path):
             }
             while row_index < len(rows):
                 row = rows[row_index]
-                if len(row) != len(SPINE_CSV_FIELDS):
+                if len(row) != len(spine_header):
                     raise ValueError(f'Invalid spine row at line {row_index + 1}')
                 try:
-                    sec_id = int(row[0])
-                    spine_id = int(row[1])
-                except (TypeError, ValueError) as exc:
+                    sec_id = int(row[spine_field_indices['Section ID']])
+                    global_spine_id = int(
+                        row[spine_field_indices[
+                            'Global Spine ID' if has_explicit_local_id else 'Spine ID'
+                        ]]
+                    )
+                    if has_explicit_local_id:
+                        local_spine_id = int(row[spine_field_indices['Local Spine ID']])
+                except (TypeError, ValueError, KeyError) as exc:
                     raise ValueError(f'Invalid spine identity at line {row_index + 1}') from exc
-                if sec_id not in spine_ids_by_section or spine_id not in spine_ids_by_section[sec_id]:
-                    raise ValueError(f'Unknown spine ID at line {row_index + 1}')
-                spine_idx = spine_ids_by_section[sec_id].index(spine_id)
-                key = (sec_id, spine_idx)
+                if sec_id not in spine_ids_by_section:
+                    raise ValueError(f'Unknown section ID at line {row_index + 1}')
+                spine_ids = spine_ids_by_section[sec_id]
+                if has_explicit_local_id:
+                    if not 0 <= local_spine_id < len(spine_ids):
+                        raise ValueError(f'Invalid local spine ID at line {row_index + 1}')
+                    if spine_ids[local_spine_id] != global_spine_id:
+                        raise ValueError(f'Local/global spine IDs do not match at line {row_index + 1}')
+                else:
+                    if global_spine_id not in spine_ids:
+                        raise ValueError(f'Unknown spine ID at line {row_index + 1}')
+                    local_spine_id = spine_ids.index(global_spine_id)
+                key = (sec_id, local_spine_id)
                 if key in seen_spines:
                     raise ValueError(f'Duplicate spine row at line {row_index + 1}')
                 seen_spines.add(key)
-                validity = row[2].strip().lower()
+                validity = row[spine_field_indices['Validity']].strip().lower()
                 if validity not in {'valid', 'invalid', 'not set', ''}:
                     raise ValueError(f'Invalid validity at line {row_index + 1}')
                 if validity in {'valid', 'invalid'}:
                     targets['spine'][key] = validity
-                for column_index, field_name in enumerate(SPINE_CSV_FIELDS[3:], start=3):
-                    status = row[column_index].strip().lower()
+                for field_name, record_type in field_targets.items():
+                    status = row[spine_field_indices[field_name]].strip().lower()
                     if status not in {'yes', 'no', 'not set', ''}:
                         raise ValueError(f'Invalid {field_name} status at line {row_index + 1}')
                     if status in {'yes', 'no'}:
-                        targets[field_targets[field_name]][key] = status
+                        targets[record_type][key] = status
                 row_index += 1
 
         return (
@@ -2508,15 +2539,25 @@ def validate_spines(morphology_path, mesh_path):
 
 
     def build_spine_dropdown_options():
-        """Build dropdown options for loaded spines in the selected section."""
+        """Build dropdown options showing local and global spine IDs."""
         sec_id = spiny_sections[current_section_idx[0]][0]
+        global_spine_ids = list(
+            morphology.spines.spine_indices_for_section(sec_id + 1)
+        )
         options = []
         for spine_idx in range(len(current_spine_data)):
-            status_label = {
-                'valid': ' [Valid]',
-                'invalid': ' [Invalid]',
-            }.get(validity_status((sec_id, spine_idx)), f' [{VALIDITY_NOT_SET}]')
-            options.append((f'Spine {spine_idx + 1}{status_label}', spine_idx))
+            status_label = validity_status((sec_id, spine_idx)).upper()
+            global_spine_id = (
+                global_spine_ids[spine_idx]
+                if spine_idx < len(global_spine_ids)
+                else 'Unknown'
+            )
+            options.append(
+                (
+                    f'Spine {spine_idx} (Global ID {global_spine_id}) [{status_label}]',
+                    spine_idx,
+                )
+            )
         return options
 
 
