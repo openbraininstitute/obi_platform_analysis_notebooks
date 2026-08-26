@@ -1,0 +1,27 @@
+{
+    "name": "Visualize extracted spines and show head/neck annotation.",
+    "authors": ["OBI", "Marwan Abdellah", "Michael W. Reimann"],
+    "description": "In this notebook the user selects a cell morphology they built using the OBI skeletonization service. Then, a spine can be selected and it will be visualized including its head/neck classification.",
+    "scale": "cellular",
+    "type": "notebook",
+    "kernel": "python",
+    "input": [
+        {
+            "data_type": {
+                "artefact": "CellMorphology",
+                "required_properties": []
+            },
+            "class": "single"
+        }
+    ],
+    "requirements": [
+        "entitysdk>=0.5.0",
+        "obi-auth>=0.3.0",
+        "json",
+        "httpx",
+        "pylmesh",
+        "morph-spines",
+        "ipywidgets",
+        "entitysdk"
+    ]
+}

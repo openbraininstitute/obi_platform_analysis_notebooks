@@ -1,0 +1,31 @@
+{
+    "name": "Calculate neuron 'f-factor'.",
+    "authors": ["OBI", "Michael W. Reimann"],
+    "description": "We calculate how spiny a neuron is. That is, by how much does the surface area of each part of the neuron increase through spines? **Please note that this notebook only works with CellMorphologies that have reconstructed spines**. You can create such morphologies by running our 'EM Cell Mesh Skeletonization' workflow!",
+    "scale": "cellular",
+    "type": "notebook",
+    "kernel": "python",
+    "input": [
+        {
+            "data_type": {
+                "artefact": "CellMorphology",
+                "required_properties": []
+            },
+            "class": "single"
+        }
+    ],
+    "requirements": [
+        "entitysdk>=0.5.0",
+        "obi-auth>=0.3.0",
+        "json",
+        "httpx",
+        "pylmesh",
+        "morph-spines",
+        "ipywidgets",
+        "entitysdk",
+        "pandas",
+        "k3d",
+        "scipy",
+        "fast-simplification"
+    ]
+}

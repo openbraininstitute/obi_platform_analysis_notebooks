@@ -1,0 +1,29 @@
+{
+    "name": "Large-scale circuit connectivity analyses",
+    "authors": ["OBI", "Michael W. Reimann"],
+    "description": "This notebook teaches efficient coding schemes for large-scale connectivity analyses at cellular resolution (10k to 250k neurons).",
+    "scale": "circuit",
+    "type": "notebook",
+    "kernel": "python",
+    "input": [
+        {
+            "data_type": {
+                "artefact": "SimulatableCircuit",
+                "required_properties": [
+                ]
+            },
+            "class": "single"
+        }
+    ],
+    "requirements": [
+        "Connectome-Utilities==0.4.11",
+        "jupyter>=1.1.1",
+        "matplotlib>=3.10.0",
+        "numpy>=2.2.1",
+        "pandas>=2.2.3",
+        "obi_auth>=0.3.0",
+        "obi_notebook>=0.2.dev0",
+        "entitysdk>=0.7.4",
+        "scipy>=1.14.1"
+    ]
+}
