@@ -1,23 +1,24 @@
 {
-    "name": "Recording Na⁺ and K⁺ ionic currents during an AP",
+    "name": "Analysis of recorded Na⁺ and K⁺ currents during an action potential",
     "authors": ["OBI", "Ilkan Kiliç"],
-    "description": "In this example, we simulate a single neuron (me-model) and record its membrane potential (v) together with sodium (Na⁺, ina) and potassium (K⁺, ik) ionic currents. By observing these ion-level currents during an evoked action potential, we can explore how sodium influx and potassium efflux shape the waveform of the spike.",
+    "description": "This notebook loads precomputed SingleNeuronSimulation result entities from the legacy single-cell workflow.",
     "scale": "cellular",
     "type": "notebook",
     "kernel": "python",
     "input": [
         {
             "data_type": {
-                "artefact": "SimulatableNeuron",
+                "artefact": "SingleNeuronSimulation",
                 "required_properties": []
             },
-            "class": "single"
+            "class": "multiple"
         }
     ],
     "requires-python": ">=3.9,<3.13",
     "requirements": [
-        "bluecellulab>=2.6.36",
-        "NEURON>=8.0.2,<9.0.0",
+        "matplotlib>=3.7.1",
+        "numpy>=1.24.0",
+        "pandas>=2.0.0",
         "entitysdk>=0.5.0",
         "obi-auth>=0.3.0",
         "obi-notebook>=0.1.dev10"
