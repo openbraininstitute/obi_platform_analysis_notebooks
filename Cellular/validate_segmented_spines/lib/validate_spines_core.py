@@ -547,6 +547,7 @@ def validate_spines(morphology_path, mesh_path):
     current_subsection_idx = [0]    # Index into the current section's subsections
     updating_subsection_dropdown = [False]
     subsection_missing_counts = {}  # (section_id, subsection_index) -> count
+    subsection_done_results = set()  # (section_id, subsection_index) values marked Done
     current_spine_idx = [0]         # Index into current section's spine list
     spine_selected = [False]        # True only after an explicit spine selection
     updating_section_dropdown = [False]
@@ -602,7 +603,8 @@ def validate_spines(morphology_path, mesh_path):
     # Section-level segmented-spine review: section_id -> canonical status label
     section_missing_results = {}
     # Validation state persistence
-    VALIDATION_SCHEMA_VERSION = '2'
+    VALIDATION_SCHEMA_VERSION = '3'
+    SUPPORTED_VALIDATION_SCHEMA_VERSIONS = {'2', '3'}
     LEGACY_VALIDATION_CSV_FIELDS = [
         'record_type', 'schema_version', 'source_id',
         'section_id', 'spine_index', 'status',
@@ -623,6 +625,9 @@ def validate_spines(morphology_path, mesh_path):
         'Incomplete Spine', 'Falsely Extended', 'Merged Spine',
         'Split Spine',
     ]
+    SUBSECTION_CSV_FIELDS = [
+        'Section ID', 'Subsection Index', 'Missing Spine Count', 'Status',
+    ]
     validation_source_id = Path(morphology_path).name
     validation_csv_path = proofreading_dir / (
         f'{Path(morphology_path).stem}_validation.csv'
@@ -637,7 +642,7 @@ def validate_spines(morphology_path, mesh_path):
 
 
     def snapshot_validation_state():
-        """Create an immutable two-table snapshot of all validation state."""
+        """Create an immutable three-table snapshot of all validation state."""
         section_rows = []
         for sec_id, spine_count in spiny_sections:
             validated_count = sum(
@@ -690,11 +695,26 @@ def validate_spines(morphology_path, mesh_path):
                     'Merged Spine': merged_spine_results.get(key, 'Not Set').title(),
                     'Split Spine': split_spine_results.get(key, 'Not Set').title(),
                 })
-        return {'section_rows': section_rows, 'spine_rows': spine_rows}
+        subsection_rows = []
+        for sec_id, _spine_count in spiny_sections:
+            for subsection in section_subsections.get(sec_id, []):
+                subsection_idx = subsection['index']
+                key = (sec_id, subsection_idx)
+                subsection_rows.append({
+                    'Section ID': sec_id,
+                    'Subsection Index': subsection_idx,
+                    'Missing Spine Count': subsection_missing_counts.get(key, 0),
+                    'Status': 'Done' if key in subsection_done_results else 'Not Set',
+                })
+        return {
+            'section_rows': section_rows,
+            'spine_rows': spine_rows,
+            'subsection_rows': subsection_rows,
+        }
 
 
     def write_validation_csv(path, snapshot):
-        """Atomically write the section and spine validation tables."""
+        """Atomically write section, spine, and subsection validation tables."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary_path = None
@@ -727,6 +747,14 @@ def validate_spines(morphology_path, mesh_path):
                         for row in snapshot['spine_rows']
                     ]
                 )
+                writer.writerow(['table', 'subsection'])
+                writer.writerow(SUBSECTION_CSV_FIELDS)
+                writer.writerows(
+                    [
+                        [row[field] for field in SUBSECTION_CSV_FIELDS]
+                        for row in snapshot['subsection_rows']
+                    ]
+                )
             os.replace(temporary_path, path)
         finally:
             if temporary_path is not None and temporary_path.exists():
@@ -734,10 +762,10 @@ def validate_spines(morphology_path, mesh_path):
 
 
     def read_validation_csv(path):
-        """Read either the current two-table or legacy validation CSV format."""
+        """Read legacy or versioned validation CSV data."""
         path = Path(path)
         if not path.exists():
-            return {}, {}, {}, {}, {}, {}, {}
+            return {}, {}, {}, {}, {}, {}, {}, {}, set()
 
         section_counts = dict(spiny_sections)
         targets = {
@@ -749,6 +777,8 @@ def validate_spines(morphology_path, mesh_path):
             'split_spine': {},
         }
         loaded_sections = {}
+        loaded_subsection_counts = {}
+        loaded_subsection_done = set()
 
         def parse_legacy():
             with path.open('r', newline='', encoding='utf-8') as handle:
@@ -794,13 +824,19 @@ def validate_spines(morphology_path, mesh_path):
 
         with path.open('r', newline='', encoding='utf-8') as handle:
             first_row = next(csv.reader(handle), [])
-        if first_row != ['validation_format', VALIDATION_SCHEMA_VERSION]:
+        is_versioned = (
+            len(first_row) == 2
+            and first_row[0] == 'validation_format'
+            and first_row[1] in SUPPORTED_VALIDATION_SCHEMA_VERSIONS
+        )
+        if not is_versioned:
             parse_legacy()
         else:
+            validation_format_version = first_row[1]
             with path.open('r', newline='', encoding='utf-8') as handle:
                 rows = [row for row in csv.reader(handle) if row]
             if rows[:2] != [
-                ['validation_format', VALIDATION_SCHEMA_VERSION],
+                ['validation_format', validation_format_version],
                 ['table', 'section'],
             ]:
                 raise ValueError(f'Invalid validation table markers in {path}')
@@ -850,7 +886,17 @@ def validate_spines(morphology_path, mesh_path):
                 'Merged Spine': 'merged_spine',
                 'Split Spine': 'split_spine',
             }
-            while row_index < len(rows):
+            spine_table_end = len(rows)
+            if validation_format_version == '3':
+                try:
+                    subsection_marker_index = rows.index(
+                        ['table', 'subsection'],
+                        row_index,
+                    )
+                except ValueError as exc:
+                    raise ValueError(f'Missing subsection table marker in {path}') from exc
+                spine_table_end = subsection_marker_index
+            while row_index < spine_table_end:
                 row = rows[row_index]
                 if len(row) != len(spine_header):
                     raise ValueError(f'Invalid spine row at line {row_index + 1}')
@@ -894,6 +940,45 @@ def validate_spines(morphology_path, mesh_path):
                         targets[record_type][key] = status
                 row_index += 1
 
+            if validation_format_version == '3':
+                row_index = subsection_marker_index + 1
+                subsection_header = rows[row_index] if row_index < len(rows) else None
+                if subsection_header != SUBSECTION_CSV_FIELDS:
+                    raise ValueError(f'Unexpected subsection table headers in {path}')
+                row_index += 1
+                subsection_counts_by_section = {
+                    sec_id: len(section_subsections.get(sec_id, []))
+                    for sec_id in section_counts
+                }
+                seen_subsections = set()
+                while row_index < len(rows):
+                    row = rows[row_index]
+                    if len(row) != len(subsection_header):
+                        raise ValueError(f'Invalid subsection row at line {row_index + 1}')
+                    try:
+                        sec_id = int(row[0])
+                        subsection_idx = int(row[1])
+                        missing_count = int(row[2])
+                    except (TypeError, ValueError) as exc:
+                        raise ValueError(f'Invalid subsection summary at line {row_index + 1}') from exc
+                    if sec_id not in subsection_counts_by_section:
+                        raise ValueError(f'Unknown section ID at line {row_index + 1}')
+                    if not 0 <= subsection_idx < subsection_counts_by_section[sec_id]:
+                        raise ValueError(f'Invalid subsection index at line {row_index + 1}')
+                    if missing_count < 0:
+                        raise ValueError(f'Invalid missing-spine count at line {row_index + 1}')
+                    key = (sec_id, subsection_idx)
+                    if key in seen_subsections:
+                        raise ValueError(f'Duplicate subsection row at line {row_index + 1}')
+                    seen_subsections.add(key)
+                    status = row[3].strip().casefold()
+                    if status not in {'done', 'not set', ''}:
+                        raise ValueError(f'Invalid subsection status at line {row_index + 1}')
+                    loaded_subsection_counts[key] = missing_count
+                    if status == 'done':
+                        loaded_subsection_done.add(key)
+                    row_index += 1
+
         return (
             targets['spine'],
             targets['false_positive'],
@@ -902,6 +987,8 @@ def validate_spines(morphology_path, mesh_path):
             targets['merged_spine'],
             targets['split_spine'],
             loaded_sections,
+            loaded_subsection_counts,
+            loaded_subsection_done,
         )
 
 
@@ -941,6 +1028,8 @@ def validate_spines(morphology_path, mesh_path):
             loaded_false_positive_quality,
             loaded_merged_spines,
             loaded_split_spines,
+            loaded_sections,
+            _,
             _,
         ) = read_validation_csv(validation_csv_path)
 
@@ -1099,6 +1188,8 @@ def validate_spines(morphology_path, mesh_path):
                 loaded_merged_spines,
                 loaded_split_spines,
                 loaded_sections,
+                loaded_subsection_counts,
+                loaded_subsection_done,
             ) = read_validation_csv(validation_csv_path)
         except Exception as exc:
             print(f'Could not restore validation state: {exc}')
@@ -1118,6 +1209,10 @@ def validate_spines(morphology_path, mesh_path):
         split_spine_results.update(loaded_split_spines)
         section_missing_results.clear()
         section_missing_results.update(loaded_sections)
+        subsection_missing_counts.clear()
+        subsection_missing_counts.update(loaded_subsection_counts)
+        subsection_done_results.clear()
+        subsection_done_results.update(loaded_subsection_done)
         schedule_validation_save()
         refresh_section_dropdown()
         update_info()
@@ -1129,6 +1224,8 @@ def validate_spines(morphology_path, mesh_path):
             or loaded_merged_spines
             or loaded_split_spines
             or loaded_sections
+            or loaded_subsection_counts
+            or loaded_subsection_done
         ):
             print(f'Restored validation state from {validation_csv_path}')
 
@@ -2198,8 +2295,7 @@ def validate_spines(morphology_path, mesh_path):
             btn_merged_spine_no,
             btn_split_spine_yes,
             btn_split_spine_no,
-            btn_validity_valid,
-            btn_validity_invalid,
+            btn_spine_done_next,
         ):
             button.disabled = not spine_selected_now
 
@@ -2237,8 +2333,7 @@ def validate_spines(morphology_path, mesh_path):
             results.get(key) == 'no'
             for results in issue_results
         )
-        btn_validity_valid.disabled = not all_issues_no
-        btn_validity_invalid.disabled = not has_defect
+        btn_spine_done_next.disabled = not (all_issues_no or has_defect)
 
         btn_next_spine.disabled = (
             not bool(current_spine_meshes_k3d)
@@ -2307,10 +2402,18 @@ def validate_spines(morphology_path, mesh_path):
             subsection_missing_counts.get((sec_id, subsection['index']), 0)
             for subsection in current_subsections
         )
-        subsection_status = (
-            f'{current_subsection_idx[0] + 1}/{subsection_count}'
-            if subsection_count
-            else '0/0'
+        subsections_checked = sum(
+            (sec_id, subsection['index']) in subsection_done_results
+            for subsection in current_subsections
+        )
+        subsections_complete = subsections_checked >= subsection_count
+        subsection_review_color = '#188038' if subsections_complete else '#f29900'
+        missing_spines_color = (
+            '#c5221f'
+            if subsection_missing_total > 0
+            else '#188038'
+            if subsections_complete
+            else '#f29900'
         )
         btn_prev_sec.disabled = (
             len(spiny_sections) <= 1
@@ -2328,10 +2431,6 @@ def validate_spines(morphology_path, mesh_path):
             subsection_count <= 1
             or current_subsection_idx[0] >= subsection_count - 1
         )
-        # Prevent contradictory section-level confirmation after a positive
-        # subsection-level missing-spine observation.
-        btn_no_missing_spines.disabled = subsection_missing_total > 0
-
         status_colors = {
             'valid': '#188038',
             'invalid': '#c5221f',
@@ -2352,12 +2451,14 @@ def validate_spines(morphology_path, mesh_path):
             f'| Spine <b>{spine_idx + 1}/{n_loaded}</b> '
             f'| Validity: '
             f'<span style="color:{status_colors[status]}"><b>{status.title()}</b></span>'
-            f'<br>Section Validated: '
+            f'<br>Section Checked: '
             f'<span style="color:{section_status_color}"><b>{"Yes" if section_complete else "No"}</b></span>'
-            f' | Section Spines Validated: '
+            f' | Spines Checked: '
             f'<span style="color:{section_spines_color}"><b>{section_validated}/{spine_count}</b></span>'
-            f'<br>Subsection Review: <b>{subsection_status}</b>'
-            f' | Missing Spines Count: <b>{subsection_missing_total}</b>'
+            f'<br>Subsections Review: '
+            f'<span style="color:{subsection_review_color}"><b>{subsections_checked}/{subsection_count}</b></span>'
+            f' | Missing Spines: '
+            f'<span style="color:{missing_spines_color}"><b>{subsection_missing_total}</b></span>'
             '<br><b>Overall Status</b> '
             '<span title="This section summarizes the overall status of all the sections and spines. '
             'This summarizes whether all sections have been analyzed and the results '
@@ -2664,18 +2765,30 @@ def validate_spines(morphology_path, mesh_path):
         refresh_section_dropdown()
         focus_first_spine()
 
-    def on_missing_segmented_spines(_):
-        set_section_missing_status(MISSING_SPINES_MISSING)
-
-    def on_no_missing_segmented_spines(_):
+    def on_confirm_missing_spines(_):
+        """Save missing-spine status and advance subsection or spine navigation."""
         sec_id = spiny_sections[current_section_idx[0]][0]
+        current_subsections = section_subsections.get(sec_id, [])
         subsection_missing_total = sum(
             subsection_missing_counts.get((sec_id, subsection['index']), 0)
-            for subsection in section_subsections.get(sec_id, [])
+            for subsection in current_subsections
         )
-        if subsection_missing_total > 0:
-            return
-        set_section_missing_status(MISSING_SPINES_NO_MISSING)
+        section_missing_results[sec_id] = (
+            MISSING_SPINES_MISSING
+            if subsection_missing_total > 0
+            else MISSING_SPINES_NO_MISSING
+        )
+        if 0 <= current_subsection_idx[0] < len(current_subsections):
+            subsection_done_results.add((sec_id, current_subsection_idx[0]))
+        schedule_validation_save()
+        refresh_section_dropdown()
+        if (
+            current_subsections
+            and current_subsection_idx[0] >= len(current_subsections) - 1
+        ):
+            focus_first_spine()
+        else:
+            on_next_subsection(None)
 
 
     # ============================================================
@@ -2734,12 +2847,27 @@ def validate_spines(morphology_path, mesh_path):
         set_spine_analysis_status(split_spine_results, 'no')
 
 
-    def on_validity_valid(_):
-        set_spine_analysis_status(validation_results, 'valid', advance=True)
-
-
-    def on_validity_invalid(_):
-        set_spine_analysis_status(validation_results, 'invalid', advance=True)
+    def on_spine_done_next(_):
+        key = (
+            spiny_sections[current_section_idx[0]][0],
+            current_spine_idx[0],
+        )
+        issue_results = (
+            false_positive_results,
+            incomplete_spine_results,
+            false_positive_quality_results,
+            merged_spine_results,
+            split_spine_results,
+        )
+        has_defect = any(
+            results.get(key) == 'yes'
+            for results in issue_results
+        )
+        set_spine_analysis_status(
+            validation_results,
+            'invalid' if has_defect else 'valid',
+            advance=True,
+        )
 
 
 
@@ -2819,11 +2947,15 @@ def validate_spines(morphology_path, mesh_path):
     btn_split_spine_no = widgets.Button(
         description='No', button_style='success', disabled=True
     )
-    btn_validity_valid = widgets.Button(
-        description='Valid', button_style='success', disabled=True
-    )
-    btn_validity_invalid = widgets.Button(
-        description='Invalid', button_style='danger', disabled=True
+    btn_spine_done_next = widgets.Button(
+        description='Spine Done, Next',
+        button_style='warning',
+        disabled=True,
+        layout=widgets.Layout(
+            width='258px',
+            min_width='258px',
+            max_width='258px',
+        ),
     )
     btn_screenshot = widgets.Button(description='ScreenShot', icon='camera')
     btn_register_assessment = widgets.Button(
@@ -2835,20 +2967,13 @@ def validate_spines(morphology_path, mesh_path):
     registration_status = widgets.HTML(value='')
     report_status = widgets.HTML(value='')
 
-    btn_missing_spines = widgets.Button(
-        description='Missing Spines', button_style='danger', icon='warning',
+    btn_confirm_missing = widgets.Button(
+        description='Subsection Done, Next',
+        button_style='warning',
         layout=widgets.Layout(
-            width=status_button_width,
-            min_width=status_button_width,
-            max_width=status_button_width,
-        ),
-    )
-    btn_no_missing_spines = widgets.Button(
-        description='No Missing Spines', button_style='success', icon='check',
-        layout=widgets.Layout(
-            width=status_button_width,
-            min_width=status_button_width,
-            max_width=status_button_width,
+            width='258px',
+            min_width='258px',
+            max_width='258px',
         ),
     )
     btn_prev_subsection = widgets.Button(
@@ -2871,13 +2996,13 @@ def validate_spines(morphology_path, mesh_path):
         ),
     )
     btn_missing_subsection = widgets.Button(
-        description='Missing Spine (+1)',
+        description='Missing +1',
         button_style='danger',
-        icon='warning',
         layout=widgets.Layout(
-            width=status_button_width,
-            min_width=status_button_width,
-            max_width=status_button_width,
+            width='100px',
+            min_width='100px',
+            max_width='100px',
+            margin='0 0 0 12px',
         ),
     )
 
@@ -3031,10 +3156,14 @@ def validate_spines(morphology_path, mesh_path):
                 (sec_id, subsection_idx),
                 0,
             )
+            subsection_status = (
+                '[Done]'
+                if (sec_id, subsection_idx) in subsection_done_results
+                else '[Not Set]'
+            )
             label = (
                 f"Subsection {subsection_idx + 1} "
-                f"({subsection['start_um']:.0f}-{subsection['end_um']:.0f} µm) "
-                f"[Missing: {missing_count}]"
+                f"(Missing : {missing_count}) {subsection_status}"
             )
             options.append((label, subsection_idx))
         return options
@@ -3189,14 +3318,12 @@ def validate_spines(morphology_path, mesh_path):
     btn_merged_spine_no.on_click(on_merged_spine_no)
     btn_split_spine_yes.on_click(on_split_spine_yes)
     btn_split_spine_no.on_click(on_split_spine_no)
-    btn_validity_valid.on_click(on_validity_valid)
-    btn_validity_invalid.on_click(on_validity_invalid)
+    btn_spine_done_next.on_click(on_spine_done_next)
     btn_screenshot.on_click(take_screenshot)
     btn_register_assessment.on_click(on_register_assessment)
     btn_generate_report.on_click(on_generate_report)
     plot.observe(on_screenshot_ready, names='screenshot')
-    btn_missing_spines.on_click(on_missing_segmented_spines)
-    btn_no_missing_spines.on_click(on_no_missing_segmented_spines)
+    btn_confirm_missing.on_click(on_confirm_missing_spines)
     btn_xy.on_click(on_xy)
     btn_negative_xy.on_click(on_negative_xy)
     btn_xz.on_click(on_xz)
@@ -3231,7 +3358,6 @@ def validate_spines(morphology_path, mesh_path):
         'Falsely Extended',
         'Merged Spine',
         'Split Spine',
-        'Validity',
     ]
     analysis_tooltips = {
         'False Positive': (
@@ -3248,9 +3374,6 @@ def validate_spines(morphology_path, mesh_path):
         ),
         'Split Spine': (
             'One actual spine has been incorrectly divided into multiple segmented objects.'
-        ),
-        'Validity': (
-            'The overall validity decision for the spine. Mark it Invalid when any segmentation issue is present.'
         ),
     }
     # Approximate rendered label width from the longest label, with room for the help icon.
@@ -3330,11 +3453,7 @@ def validate_spines(morphology_path, mesh_path):
             btn_split_spine_yes,
             btn_split_spine_no,
         ),
-        analysis_row(
-            'Validity',
-            btn_validity_valid,
-            btn_validity_invalid,
-        ),
+        btn_spine_done_next,
     ], layout=widgets.Layout(width='100%'))
 
     # The current ipywidgets theme uses a 30 px default button height. Set every
@@ -3356,13 +3475,11 @@ def validate_spines(morphology_path, mesh_path):
         btn_merged_spine_no,
         btn_split_spine_yes,
         btn_split_spine_no,
-        btn_validity_valid,
-        btn_validity_invalid,
+        btn_spine_done_next,
         btn_screenshot,
         btn_register_assessment,
         btn_generate_report,
-        btn_missing_spines,
-        btn_no_missing_spines,
+        btn_confirm_missing,
         btn_prev_subsection,
         btn_next_subsection,
         btn_missing_subsection,
@@ -3389,7 +3506,11 @@ def validate_spines(morphology_path, mesh_path):
         layout=widgets.Layout(width='100%', align_items='flex-start'),
     )
     section_status_btns = widgets.HBox(
-        [btn_missing_spines, btn_no_missing_spines], layout=row_layout
+        [btn_confirm_missing],
+        layout=widgets.Layout(
+            width='100%',
+            margin='20px 0 0 0',
+        ),
     )
 
     projection_btns = widgets.HBox(
@@ -3432,7 +3553,27 @@ def validate_spines(morphology_path, mesh_path):
                 [btn_prev_subsection, btn_next_subsection],
                 layout=navigation_button_row_layout,
             ),
-            widgets.HBox([btn_missing_subsection], layout=row_layout),
+            widgets.HBox(
+                [
+                    widgets.HTML(
+                        value='<b>Missing Spine Detected</b>',
+                        layout=widgets.Layout(
+                            flex='0 0 auto',
+                            min_width='0',
+                            white_space='nowrap',
+                        ),
+                    ),
+                    btn_missing_subsection,
+                ],
+                layout=widgets.Layout(
+                    display='flex',
+                    flex_flow='row nowrap',
+                    align_items='center',
+                    justify_content='flex-start',
+                    width='100%',
+                    margin='20px 0 0 0',
+                ),
+            ),
         ],
         layout=widgets.Layout(width='100%', align_items='flex-start'),
     )
@@ -3448,25 +3589,16 @@ def validate_spines(morphology_path, mesh_path):
             'style="cursor:help; color:#5f6368;">&#9432;</span>'
         )),
         section_selection,
-        widgets.HTML(value=(
-            '<b>Validate Missing Spines by 10 µm Subsection</b> '
-            '<span title="Review the current subsection, click Missing Spine (+1) '
-            'once for each missing spine, and use Next Subsection to continue." '
-            'style="cursor:help; color:#5f6368;">&#9432;</span>'
-        )),
+        widgets.HTML(
+            value=(
+                '<b>Subsection Navigation (10 µm)</b> '
+                '<span title="Review the current subsection, click Missing Spine (+1) '
+                'once for each missing spine, and use Next Subsection to continue." '
+                'style="cursor:help; color:#5f6368;">&#9432;</span>'
+            ),
+            layout=widgets.Layout(margin='6px 0 0 0'),
+        ),
         subsection_nav,
-        widgets.HTML(value=(
-            '<b>Validate Missing Spines</b> '
-            '<span title="You have to visualize the section geometry and analyze it '
-            'to verify if the segmentation procedure does not miss any spines. In '
-            'case you suspect that a spine in the mesh is not segmented, then the '
-            'section has missing spines, and the red button '
-            '&quot;Missing Spines&quot; should be clicked. Otherwise, you should '
-            'confirm that the section has no missing spines and activate the '
-            '&quot;No Missing Spines&quot; button. Once this is done, you will be '
-            'moved automatically to validate the individual spines of the section." '
-            'style="cursor:help; color:#5f6368;">&#9432;</span>'
-        )),
         section_status_btns,
     ], layout=widgets.Layout(width='33.333%', padding='0 8px 0 0', box_sizing='border-box'))
 
@@ -3557,6 +3689,8 @@ def validate_spines(morphology_path, mesh_path):
                 loaded_merged_spines,
                 loaded_split_spines,
                 loaded_sections,
+                loaded_subsection_counts,
+                loaded_subsection_done,
             ) = read_validation_csv(validation_csv_path)
             validation_results.update(loaded_spines)
             false_positive_results.update(loaded_false_positives)
@@ -3565,6 +3699,8 @@ def validate_spines(morphology_path, mesh_path):
             merged_spine_results.update(loaded_merged_spines)
             split_spine_results.update(loaded_split_spines)
             section_missing_results.update(loaded_sections)
+            subsection_missing_counts.update(loaded_subsection_counts)
+            subsection_done_results.update(loaded_subsection_done)
             write_validation_csv(
                 validation_csv_path,
                 snapshot_validation_state(),

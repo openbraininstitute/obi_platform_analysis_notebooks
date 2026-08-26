@@ -19,8 +19,15 @@ def _load_validation_records(csv_path):
     with csv_path.open('r', newline='', encoding='utf-8') as handle:
         rows = [row for row in csv.reader(handle) if row]
 
-    if not rows or rows[0] != ['validation_format', '2']:
+    versioned_csv = (
+        rows
+        and len(rows[0]) == 2
+        and rows[0][0] == 'validation_format'
+        and rows[0][1] in {'2', '3'}
+    )
+    if not versioned_csv:
         return pd.read_csv(csv_path)
+    validation_format_version = rows[0][1]
 
     try:
         spine_marker_index = rows.index(['table', 'spine'])
@@ -66,7 +73,16 @@ def _load_validation_records(csv_path):
         'Split Spine': 'split_spine',
     }
     spine_indices = {}
-    for row in rows[spine_marker_index + 2:]:
+    spine_table_end = len(rows)
+    if validation_format_version == '3':
+        try:
+            spine_table_end = rows.index(
+                ['table', 'subsection'],
+                spine_marker_index + 2,
+            )
+        except ValueError as exc:
+            raise ValueError(f'Missing subsection table in {csv_path}') from exc
+    for row in rows[spine_marker_index + 2:spine_table_end]:
         if len(row) != len(spine_header):
             raise ValueError(f'Invalid spine row in {csv_path}')
         section_id = row[spine_field_indices['Section ID']]

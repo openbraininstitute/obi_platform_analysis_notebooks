@@ -110,7 +110,14 @@ def create_validation_report_pdf(
     with validation_csv_path.open("r", newline="", encoding="utf-8") as handle:
         rows = [row for row in csv.reader(handle) if row]
 
-    if rows and rows[0] == ["validation_format", "2"]:
+    versioned_csv = (
+        rows
+        and len(rows[0]) == 2
+        and rows[0][0] == 'validation_format'
+        and rows[0][1] in {'2', '3'}
+    )
+    if versioned_csv:
+        validation_format_version = rows[0][1]
         section_marker = ["table", "section"]
         spine_marker = ["table", "spine"]
         section_fields = [
@@ -150,7 +157,16 @@ def create_validation_report_pdf(
         for row in rows[3:spine_marker_index]:
             if row[9].strip().lower() == "missing":
                 missing_section_ids.add(int(row[0]))
-        for row in rows[spine_marker_index + 2:]:
+        spine_table_end = len(rows)
+        if validation_format_version == '3':
+            try:
+                spine_table_end = rows.index(
+                    ['table', 'subsection'],
+                    spine_marker_index + 2,
+                )
+            except ValueError as exc:
+                raise ValueError(f'Missing subsection table in {validation_csv_path}') from exc
+        for row in rows[spine_marker_index + 2:spine_table_end]:
             section_id = int(row[spine_field_indices["Section ID"]])
             spine_id = int(row[spine_field_indices[
                 "Global Spine ID" if explicit_identity else "Spine ID"
