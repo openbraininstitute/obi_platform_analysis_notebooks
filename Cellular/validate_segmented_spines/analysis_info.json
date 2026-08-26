@@ -17,12 +17,18 @@
     "requirements": [
         "entitysdk>=0.5.0",
         "obi-auth>=0.3.0",
-        "json",
-        "httpx",
+        "obi-one",
+        "obi-notebook",
         "pylmesh",
         "morph-spines",
-        "matplotlib>=3.10.0",
+        "morph-spines-visualizer",
         "ipywidgets",
-        "entitysdk"
+        "k3d",
+        "numpy",
+        "ipython",
+        "matplotlib>=3.10.0",
+        "pandas",
+        "Pillow",
+        "requests"
     ]
 }

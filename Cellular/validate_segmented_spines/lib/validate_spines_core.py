@@ -20,11 +20,6 @@ from morph_spines_visualizer.core import data_loading, geometry, k3d_core
 from morph_spines_visualizer.core import spines as spines_lib
 
 try:
-    from validate_spines_report import create_validation_report_pdf
-except ModuleNotFoundError:
-    from examples.validate_spines_report import create_validation_report_pdf
-
-try:
     from scipy.spatial import cKDTree
 except ImportError:  # pragma: no cover - exercised only in minimal installations
     cKDTree = None
@@ -771,11 +766,7 @@ def validate_spines(morphology_path, mesh_path):
                 'Generating assessment statistics requires matplotlib.'
             ) from exc
 
-        font_path = (
-            Path(__file__).resolve().parent / 'assets' / 'fonts' / 'Arimo-Regular.ttf'
-            if '__file__' in globals()
-            else Path.cwd() / 'examples' / 'assets' / 'fonts' / 'Arimo-Regular.ttf'
-        )
+        font_path = Path('lib') / 'fonts' / 'font_regular.otf'
         if not font_path.is_file():
             raise RuntimeError(f'Bundled assessment font not found: {font_path}')
         axis_label_font = FontProperties(fname=str(font_path))
@@ -1301,7 +1292,7 @@ def validate_spines(morphology_path, mesh_path):
 
 
     def stage_registration_directory(destination, report_path):
-        """Stage exactly the validation CSV and generated PDF for registration."""
+        """Stage exactly the validation CSV and analysis PDF for registration."""
         destination = Path(destination)
         report_path = Path(report_path)
         destination.mkdir(parents=True, exist_ok=False)
@@ -1309,7 +1300,11 @@ def validate_spines(morphology_path, mesh_path):
         if not validation_csv_path.exists():
             write_validation_csv(validation_csv_path, snapshot_validation_state())
         if not report_path.is_file():
-            raise FileNotFoundError(f'Registration PDF does not exist: {report_path}')
+            raise FileNotFoundError(f'Registration analysis PDF does not exist: {report_path}')
+        if report_path.suffix.lower() != '.pdf' or not report_path.stem.lower().endswith('_analysis'):
+            raise ValueError(
+                f'Registration requires an analysis PDF named *_analysis.pdf: {report_path}'
+            )
 
         csv_destination = destination / validation_csv_path.name
         pdf_destination = destination / report_path.name
@@ -1320,7 +1315,7 @@ def validate_spines(morphology_path, mesh_path):
         expected_files = {csv_destination.name, pdf_destination.name}
         if staged_files != expected_files:
             raise RuntimeError(
-                f'Registration staging must contain only CSV and PDF; found {sorted(staged_files)}'
+                f'Registration staging must contain only CSV and analysis PDF; found {sorted(staged_files)}'
             )
         return destination
 
@@ -1349,64 +1344,51 @@ def validate_spines(morphology_path, mesh_path):
 
 
     async def register_assessment_worker():
-        """Generate the PNG/PDF, package CSV+PDF, and upload the registration."""
+        """Generate the analysis PDF, stage CSV+PDF, ZIP them, and upload."""
         try:
-            registration_status.value = '<i>1/5 Saving validation CSV...</i>'
-            print('[Registration] 1/5 Saving validation CSV...')
+            registration_status.value = '<i>1/4 Saving validation data...</i>'
+            print('[Registration] 1/4 Saving validation CSV...')
             await wait_for_validation_save()
 
             screenshot_task = screenshot_save_task[0]
             if screenshot_task is not None and not screenshot_task.done():
-                registration_status.value = '<i>1/5 Waiting for the latest screenshot...</i>'
+                registration_status.value = '<i>1/4 Waiting for the latest screenshot...</i>'
                 await screenshot_task
 
-            registration_status.value = '<i>2/5 Generating analysis PNGs...</i>'
-            print('[Registration] 2/5 Generating analysis PNGs...')
-            analysis_paths = await asyncio.to_thread(build_stats_figures_from_csv)
-            missing_analysis_paths = [
-                path for path in analysis_paths
-                if not Path(path).is_file()
-            ]
-            if missing_analysis_paths:
-                raise FileNotFoundError(
-                    f'Analysis PNG generation did not produce: {missing_analysis_paths}'
-                )
-            print(
-                '[Registration] Analysis PNGs: '
-                + ', '.join(Path(path).name for path in analysis_paths)
+            registration_status.value = '<i>2/4 Generating analysis artifacts...</i>'
+            print('[Registration] 2/4 Generating analysis data...')
+            analysis_module = importlib.import_module('validate_spine_analysis')
+            analysis_module = importlib.reload(analysis_module)
+            analysis_pdf_path = await asyncio.to_thread(
+                analysis_module.generate_report,
+                images_dir=validation_csv_path.parent,
+                csv_path=validation_csv_path,
+                fonts_dir=Path('lib') / 'fonts',
+                output_dir=validation_csv_path.parent,
             )
+            analysis_pdf_path = Path(analysis_pdf_path)
+            if not analysis_pdf_path.is_file():
+                raise FileNotFoundError(
+                    f'Analysis PDF generation did not produce: {analysis_pdf_path}'
+                )
+            print(f'[Registration] Analysis PDF: {analysis_pdf_path.name}')
 
             destination = registration_identifier()
-            source_image_directory = validation_csv_path.parent
-            with tempfile.TemporaryDirectory(prefix='validation_report_') as temporary_directory:
-                report_path = Path(temporary_directory) / (
-                    f'{validation_csv_path.stem}_validation_report.pdf'
-                )
-                registration_status.value = '<i>3/5 Generating PDF report...</i>'
-                print('[Registration] 3/5 Generating PDF report...')
-                await asyncio.to_thread(
-                    create_validation_report_pdf,
-                    source_image_directory,
-                    validation_csv_path,
-                    report_path,
-                    1600,
-                    75,
-                    morphology_path,
-                )
-
-                registration_status.value = '<i>4/5 Creating CSV+PDF ZIP...</i>'
-                print('[Registration] 4/5 Staging CSV and PDF...')
-                await asyncio.to_thread(
-                    stage_registration_directory,
-                    destination,
-                    report_path,
-                )
+            registration_status.value = '<i>3/4 Staging analysis data...</i>'
+            print('[Registration] 3/4 Staging analysis data...')
+            await asyncio.to_thread(
+                stage_registration_directory,
+                destination,
+                analysis_pdf_path,
+            )
 
             upload_zip, helper_path = load_registration_uploader()
             print(f'[Registration] Using helper: {helper_path}')
-            registration_status.value = '<i>5/5 Uploading CSV+PDF ZIP...</i>'
-            print('[Registration] 5/5 Creating ZIP and uploading...')
-            message = 'Validation CSV and PDF report registration'
+            registration_status.value = (
+                '<i>4/4 Registering file...</i>'
+            )
+            print('[Registration] 4/4 Registering results...')
+            message = 'Validation CSV and analysis PDF registration'
             result = await asyncio.to_thread(
                 upload_zip,
                 str(destination),
@@ -1443,7 +1425,7 @@ def validate_spines(morphology_path, mesh_path):
 
 
     def on_register_assessment(_):
-        """Zip and upload the current validation CSV and screenshots."""
+        """Create and upload a CSV-only-and-analysis-PDF ZIP archive."""
         if registration_task[0] is not None and not registration_task[0].done():
             return
         registration_status.value = '<i>Registering assessment...</i>'
@@ -1469,14 +1451,10 @@ def validate_spines(morphology_path, mesh_path):
                 report_module.generate_report,
                 images_dir=validation_csv_path.parent,
                 csv_path=validation_csv_path,
-                fonts_dir=Path(report_module.__file__).resolve().parent,
+                fonts_dir=Path('lib') / 'fonts',
                 output_dir=validation_csv_path.parent,
             )
-            safe_report_path = html.escape(str(Path(report_path)))
-            report_status.value = (
-                f'<span style="color:#188038">'
-                f'Report created: {safe_report_path}</span>'
-            )
+            report_status.value = 'Report Generated'
         except Exception as exc:
             error_detail = html.escape(f'{type(exc).__name__}: {exc}')
             report_status.value = (

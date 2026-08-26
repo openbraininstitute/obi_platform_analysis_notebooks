@@ -1,5 +1,6 @@
 from pathlib import Path
 from io import BytesIO
+from pathlib import Path
 import csv
 import re
 
@@ -8,6 +9,9 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import pandas as pd
 from PIL import Image as PILImage
+
+
+FONT_DIRECTORY = Path('lib') / 'fonts'
 
 
 def _load_validation_records(csv_path):
@@ -41,6 +45,7 @@ def _load_validation_records(csv_path):
             'record_type': 'section',
             'section_id': row[0],
             'spine_index': '',
+            'spine_id': '',
             'status': row[9].strip().lower(),
         })
 
@@ -56,12 +61,14 @@ def _load_validation_records(csv_path):
         if len(row) != len(expected_spine_header):
             raise ValueError(f'Invalid spine row in {csv_path}')
         section_id = row[0]
+        spine_id = row[1]
         spine_index = spine_indices.get(section_id, 0)
         spine_indices[section_id] = spine_index + 1
         records.append({
             'record_type': 'spine',
             'section_id': section_id,
             'spine_index': spine_index,
+            'spine_id': spine_id,
             'status': row[2].strip().lower(),
         })
         for column_index, record_type in issue_columns.items():
@@ -69,12 +76,13 @@ def _load_validation_records(csv_path):
                 'record_type': record_type,
                 'section_id': section_id,
                 'spine_index': spine_index,
+                'spine_id': spine_id,
                 'status': row[column_index].strip().lower(),
             })
 
     return pd.DataFrame(
         records,
-        columns=['record_type', 'section_id', 'spine_index', 'status'],
+        columns=['record_type', 'section_id', 'spine_index', 'spine_id', 'status'],
     )
 
 
@@ -96,7 +104,7 @@ def generate_report(
     csv_path : path-like
         Path to the validation CSV file.
     fonts_dir : path-like
-        Directory containing ``regular.otf``.
+        Directory containing ``font_regular.otf``.
     output_dir : path-like
         Directory the PNG/PDF outputs are written to.
     render_dpi, export_dpi : int, optional
@@ -106,7 +114,7 @@ def generate_report(
     """
     images_dir = Path(images_dir)
     csv_path = Path(csv_path)
-    fonts_dir = Path(fonts_dir)
+    fonts_dir = FONT_DIRECTORY if fonts_dir is None else Path(fonts_dir)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -114,9 +122,9 @@ def generate_report(
     combined_pdf_path = output_dir / f'{csv_path.stem}_analysis.pdf'
     error_png_path = output_dir / f'{csv_path.stem}_stacked_error_types.png'
 
-    font_path = fonts_dir / 'regular.otf'
+    font_path = fonts_dir / 'font_regular.otf'
     if not font_path.is_file():
-        raise FileNotFoundError(f'regular.otf was not found in {fonts_dir}.')
+        raise FileNotFoundError(f'font_regular.otf was not found in {fonts_dir}.')
     font_manager.fontManager.addfont(str(font_path))
     font_family = font_manager.FontProperties(fname=str(font_path)).get_name()
 
@@ -256,16 +264,12 @@ def generate_report(
     # Save the rendered image first, then make the PDF from that exact image.
     fig.savefig(png_path, dpi=export_dpi, facecolor=fig.get_facecolor(), bbox_inches='tight', pad_inches=0.04)
     plt.close(fig)
-    print(f'Using {section_count} sections from the CSV.')
-    print(f'Valid: {int(counts["valid"].sum())}  |  Invalid: {int(counts["invalid"].sum())}  |  Not Set: {unset_spines}')
-    print(f'Saved image: {png_path}')
-
     # Detailed error findings by section. Only confirmed 'yes' records are
     # counted, so the chart shows actual error findings rather than 'no' reviews.
     error_type_labels = {
         'false_positive': 'False Positive',
         'incomplete_spine': 'Incomplete Spine',
-        'false_positive_quality': 'Falsely Extended',
+        'false_positive_quality': 'Falsely Extended Spine',
         'merged_spine': 'Merged Spine',
         'split_spine': 'Split Spine',
     }
@@ -275,6 +279,20 @@ def generate_report(
         error_rows['section_id'], errors='raise'
     ).astype(int)
     error_rows['status'] = error_rows['status'].fillna('').astype(str).str.strip().str.lower()
+    if 'spine_id' not in error_rows:
+        error_rows['spine_id'] = error_rows['spine_index']
+    error_rows['spine_id'] = pd.to_numeric(error_rows['spine_id'], errors='coerce')
+    issue_labels = {}
+    confirmed_error_rows = error_rows.loc[error_rows['status'].eq('yes')].dropna(
+        subset=['spine_id']
+    )
+    for (section_id, spine_id), grouped_rows in confirmed_error_rows.groupby(
+        ['section_id', 'spine_id'], sort=False
+    ):
+        issue_labels[(int(section_id), int(spine_id))] = '; '.join(
+            error_type_labels[record_type]
+            for record_type in grouped_rows['record_type']
+        )
     error_counts = pd.DataFrame(
         0, index=section_ids, columns=error_type_keys, dtype='int64'
     )
@@ -460,21 +478,19 @@ def generate_report(
         )
         for section_id, spine_id, snapshot_id, image_path in spine_snapshots:
             title = f'Section {section_id}, Spine {spine_id}, Snapshot {snapshot_id}'
+            issue_text = issue_labels.get((section_id, spine_id))
+            if issue_text:
+                title += f'\nErrors: {issue_text}'
             add_snapshot_page(report, image_path, title)
-
-    print(f'Confirmed error findings: {error_total}')
-    print(f'Missing-section snapshots added: {len(section_snapshots)}')
-    print(f'Spine-issue snapshots added: {len(spine_snapshots)}')
-    print(f'Saved combined PDF: {combined_pdf_path}')
 
     return combined_pdf_path
 
 
 if __name__ == '__main__':
-    csv_path = Path('/scratch/data/skeletonizations/864691134886335738_validation.csv')
+    csv_path = Path('864691134886335738_validation.csv')
     generate_report(
-        images_dir=csv_path.parent / 'images',
+        images_dir=csv_path.parent,
         csv_path=csv_path,
-        fonts_dir=Path.cwd() / 'examples/assets/fonts',
+        fonts_dir=Path('lib') / 'fonts',
         output_dir=csv_path.parent,
     )

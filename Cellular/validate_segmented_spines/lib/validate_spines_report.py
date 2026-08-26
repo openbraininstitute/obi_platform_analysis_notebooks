@@ -10,10 +10,13 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 from morph_spines_visualizer.core import data_loading
 
 
+FONT_DIRECTORY = Path('lib') / 'fonts'
+
+
 ISSUE_LABELS = {
     "false_positive": "False Positive",
     "incomplete_spine": "Incomplete Spine",
-    "false_positive_quality": "Falsely Extended",
+    "false_positive_quality": "Falsely Extended Spine",
     "merged_spine": "Merged Spine",
     "split_spine": "Split Spine",
 }
@@ -39,13 +42,13 @@ def _parse_screenshot(path: Path):
 
 
 def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    font_path = Path(__file__).resolve().parent / "assets" / "fonts" / "Arimo-Regular.ttf"
-    if font_path.is_file():
-        try:
-            return ImageFont.truetype(str(font_path), size)
-        except OSError:
-            pass
-    return ImageFont.load_default()
+    font_path = FONT_DIRECTORY / "font_regular.otf"
+    if not font_path.is_file():
+        raise FileNotFoundError(f"Bundled report font not found: {font_path}")
+    try:
+        return ImageFont.truetype(str(font_path), size)
+    except OSError as exc:
+        raise OSError(f"Could not load bundled report font: {font_path}") from exc
 
 
 def create_validation_report_pdf(
@@ -63,9 +66,9 @@ def create_validation_report_pdf(
     record. ``morphology_path`` is supplied separately because the CSV may be
     stored in the mesh's proofreading directory.
     """
-    image_directory = Path(image_directory).expanduser()
-    validation_csv_path = Path(validation_csv_path).expanduser()
-    pdf_path = Path(pdf_path).expanduser()
+    image_directory = Path(image_directory)
+    validation_csv_path = Path(validation_csv_path)
+    pdf_path = Path(pdf_path)
 
     if not image_directory.is_dir():
         raise NotADirectoryError(f"Image directory does not exist: {image_directory}")
@@ -77,7 +80,7 @@ def create_validation_report_pdf(
         raise ValueError("jpeg_quality must be between 1 and 100")
 
     morphology_path = (
-        Path(morphology_path).expanduser()
+        Path(morphology_path)
         if morphology_path is not None
         else validation_csv_path.with_name(
             validation_csv_path.name.removesuffix("_validation.csv") + ".h5"
@@ -129,7 +132,7 @@ def create_validation_report_pdf(
         error_columns = {
             "False Positive": "False Positive",
             "Incomplete Spine": "Incomplete Spine",
-            "Falsely Extended Spine": "Falsely Extended",
+            "Falsely Extended Spine": "Falsely Extended Spine",
             "Merged Spine": "Merged Spine",
             "Split Spine": "Split Spine",
         }
@@ -150,10 +153,11 @@ def create_validation_report_pdf(
         issue_records = {}
         with validation_csv_path.open("r", newline="", encoding="utf-8") as handle:
             for row in csv.DictReader(handle):
-                record_type = row.get("record_type")
-                if record_type == "section" and row.get("status") == "missing":
+                record_type = (row.get("record_type") or "").strip().lower()
+                status = (row.get("status") or "").strip().lower()
+                if record_type == "section" and status == "missing":
                     missing_section_ids.add(int(row["section_id"]))
-                elif record_type in ISSUE_LABELS and row.get("status") == "yes":
+                elif record_type in ISSUE_LABELS and status == "yes":
                     key = (int(row["section_id"]), int(row["spine_index"]))
                     issue_records.setdefault(key, []).append(ISSUE_LABELS[record_type])
 

@@ -7,6 +7,7 @@ to Google Drive through a Google Apps Script endpoint.
 
 from pathlib import Path
 from datetime import datetime
+from urllib.parse import urlparse
 
 import base64
 import mimetypes
@@ -263,28 +264,21 @@ def create_zip(
     output_dir: Path,
 ) -> Path:
     """
-    Zip the contents of an experiment directory.
+    Create an archive inside ``output_dir`` containing only its PDF and CSV.
 
-    Example:
-
-        experiment_001/
-
-    becomes:
-
-        experiment_001.zip
+    The registration output directory must contain exactly one analysis PDF and
+    one validation CSV before this function runs. The generated ZIP is stored
+    inside that same directory, but is excluded from the archive contents.
 
     Returns:
         Path to the generated ZIP file.
     """
 
-    output_dir = Path(
-        output_dir
-    )
+    output_dir = Path(output_dir)
 
     if not output_dir.exists():
         raise FileNotFoundError(
-            f"Experiment directory does not exist: "
-            f"{output_dir}"
+            f"Experiment directory does not exist: {output_dir}"
         )
 
     if not output_dir.is_dir():
@@ -292,43 +286,56 @@ def create_zip(
             f"Expected a directory: {output_dir}"
         )
 
-    zip_path = output_dir.parent / f'{output_dir.name}.zip'
+    # Store the archive alongside the staged files, as required by registration.
+    zip_path = output_dir / f'{output_dir.name}.zip'
 
-    print(
-        f"[Zipping] Compressing "
-        f"'{output_dir}' → '{zip_path}'..."
-    )
+    # Ignore an archive from a previous attempt while inspecting the payload.
+    entries = [path for path in output_dir.iterdir() if path != zip_path]
+    source_files = [path for path in entries if path.is_file()]
+    pdf_files = [path for path in source_files if path.suffix.lower() == '.pdf']
+    csv_files = [path for path in source_files if path.suffix.lower() == '.csv']
+
+    # Reject screenshots, PNGs, morphology files, nested directories, or extras.
+    if (
+        len(entries) != 2
+        or len(source_files) != 2
+        or len(pdf_files) != 1
+        or len(csv_files) != 1
+        or not pdf_files[0].stem.lower().endswith('_analysis')
+    ):
+        found = sorted(path.name for path in entries)
+        raise RuntimeError(
+            'Registration output directory must contain exactly one '
+            f'analysis PDF and one CSV; found {found}'
+        )
 
     if zip_path.exists():
         zip_path.unlink()
+
+    print(
+        f"[Zipping] Compressing only '{pdf_files[0].name}' and "
+        f"'{csv_files[0].name}' into '{zip_path}'..."
+    )
 
     with zipfile.ZipFile(
         zip_path,
         "w",
         compression=zipfile.ZIP_DEFLATED,
     ) as zip_file:
+        for file_path in (pdf_files[0], csv_files[0]):
+            zip_file.write(file_path, arcname=file_path.name)
 
-        for file_path in output_dir.rglob("*"):
+    # Verify the archive before it is handed to the Drive uploader.
+    expected_names = {pdf_files[0].name, csv_files[0].name}
+    with zipfile.ZipFile(zip_path, 'r') as zip_file:
+        actual_names = set(zip_file.namelist())
+    if actual_names != expected_names:
+        raise RuntimeError(
+            f'Created ZIP must contain only {sorted(expected_names)}; '
+            f'found {sorted(actual_names)}'
+        )
 
-            if not file_path.is_file():
-                continue
-
-            archive_name = (
-                file_path.relative_to(
-                    output_dir
-                )
-            )
-
-            zip_file.write(
-                file_path,
-                arcname=archive_name,
-            )
-
-    zip_size_mb = (
-        zip_path.stat().st_size /
-        (1024 * 1024)
-    )
-
+    zip_size_mb = zip_path.stat().st_size / (1024 * 1024)
     print(
         f"[Zipping] ✓ Done → {zip_path} "
         f"({zip_size_mb:.2f} MB)"
@@ -442,7 +449,25 @@ def upload_file(
         UPLOAD_URL,
         json=payload,
         timeout=UPLOAD_TIMEOUT_SECONDS,
+        allow_redirects=False,
     )
+
+    # Apps Script may complete the POST side effect and return a redirect to a
+    # content URL. Following that redirect turns it into a GET, which can fail
+    # with "doGet not found" even though the upload/email already succeeded.
+    if response.is_redirect:
+        redirect_location = response.headers.get('Location', '')
+        redirect_host = urlparse(redirect_location).hostname
+        if redirect_host in {
+            'script.google.com',
+            'script.googleusercontent.com',
+        }:
+            return {
+                'success': True,
+                'status': 'accepted',
+                'redirected': True,
+                'filename': file_path.name,
+            }
 
     response.raise_for_status()
 
