@@ -30,12 +30,12 @@ def _load_validation_records(csv_path):
 
     expected_spine_header = [
         'Section ID', 'Local Spine ID', 'Global Spine ID', 'Validity',
-        'False Positive', 'Incomplete Spine', 'Falsely Extended Spine',
+        'False Positive', 'Incomplete Spine', 'Falsely Extended',
         'Merged Spine', 'Split Spine',
     ]
     legacy_spine_header = [
         'Section ID', 'Spine ID', 'Validity', 'False Positive',
-        'Incomplete Spine', 'Falsely Extended Spine', 'Merged Spine',
+        'Incomplete Spine', 'Falsely Extended', 'Merged Spine',
         'Split Spine',
     ]
     if spine_header not in (expected_spine_header, legacy_spine_header):
@@ -61,7 +61,7 @@ def _load_validation_records(csv_path):
     issue_columns = {
         'False Positive': 'false_positive',
         'Incomplete Spine': 'incomplete_spine',
-        'Falsely Extended Spine': 'false_positive_quality',
+        'Falsely Extended': 'false_positive_quality',
         'Merged Spine': 'merged_spine',
         'Split Spine': 'split_spine',
     }
@@ -293,7 +293,7 @@ def generate_report(
     error_type_labels = {
         'false_positive': 'False Positive',
         'incomplete_spine': 'Incomplete Spine',
-        'false_positive_quality': 'Falsely Extended Spine',
+        'false_positive_quality': 'Falsely Extended',
         'merged_spine': 'Merged Spine',
         'split_spine': 'Split Spine',
     }

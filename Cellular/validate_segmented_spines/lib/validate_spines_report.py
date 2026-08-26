@@ -16,7 +16,7 @@ FONT_DIRECTORY = Path('lib') / 'fonts'
 ISSUE_LABELS = {
     "false_positive": "False Positive",
     "incomplete_spine": "Incomplete Spine",
-    "false_positive_quality": "Falsely Extended Spine",
+    "false_positive_quality": "Falsely Extended",
     "merged_spine": "Merged Spine",
     "split_spine": "Split Spine",
 }
@@ -121,12 +121,12 @@ def create_validation_report_pdf(
         ]
         spine_fields = [
             "Section ID", "Local Spine ID", "Global Spine ID", "Validity",
-            "False Positive", "Incomplete Spine", "Falsely Extended Spine",
+            "False Positive", "Incomplete Spine", "Falsely Extended",
             "Merged Spine", "Split Spine",
         ]
         legacy_spine_fields = [
             "Section ID", "Spine ID", "Validity", "False Positive",
-            "Incomplete Spine", "Falsely Extended Spine", "Merged Spine",
+            "Incomplete Spine", "Falsely Extended", "Merged Spine",
             "Split Spine",
         ]
         if rows[1] != section_marker or rows[2] != section_fields:
@@ -143,7 +143,7 @@ def create_validation_report_pdf(
         error_columns = {
             "False Positive": "False Positive",
             "Incomplete Spine": "Incomplete Spine",
-            "Falsely Extended Spine": "Falsely Extended Spine",
+            "Falsely Extended": "Falsely Extended",
             "Merged Spine": "Merged Spine",
             "Split Spine": "Split Spine",
         }

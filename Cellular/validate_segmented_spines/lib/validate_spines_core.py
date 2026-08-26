@@ -101,18 +101,18 @@ def _migrate_legacy_validation_csv(validation_csv_path, morphology):
     section_fields = [
         'Section', 'Number Spines', 'Validated (Yes or No)',
         'Remaining Spines to Validate', 'False Positives',
-        'Incomplete Spines', 'Falsely Extended Spines',
+        'Incomplete Spines', 'Falsely Extended',
         'Merged Spines', 'Split Spines', 'Missing Segmented Spines',
     ]
     spine_fields = [
         'Section ID', 'Local Spine ID', 'Global Spine ID', 'Validity',
-        'False Positive', 'Incomplete Spine', 'Falsely Extended Spine',
+        'False Positive', 'Incomplete Spine', 'Falsely Extended',
         'Merged Spine', 'Split Spine',
     ]
     issue_columns = (
         ('False Positive', 'false_positive'),
         ('Incomplete Spine', 'incomplete_spine'),
-        ('Falsely Extended Spine', 'false_positive_quality'),
+        ('Falsely Extended', 'false_positive_quality'),
         ('Merged Spine', 'merged_spine'),
         ('Split Spine', 'split_spine'),
     )
@@ -615,12 +615,12 @@ def validate_spines(morphology_path, mesh_path):
     ]
     SPINE_CSV_FIELDS = [
         'Section ID', 'Local Spine ID', 'Global Spine ID', 'Validity',
-        'False Positive', 'Incomplete Spine', 'Falsely Extended Spine',
+        'False Positive', 'Incomplete Spine', 'Falsely Extended',
         'Merged Spine', 'Split Spine',
     ]
     LEGACY_SPINE_CSV_FIELDS = [
         'Section ID', 'Spine ID', 'Validity', 'False Positive',
-        'Incomplete Spine', 'Falsely Extended Spine', 'Merged Spine',
+        'Incomplete Spine', 'Falsely Extended', 'Merged Spine',
         'Split Spine',
     ]
     validation_source_id = Path(morphology_path).name
@@ -686,7 +686,7 @@ def validate_spines(morphology_path, mesh_path):
                     'Validity': validation_results.get(key, 'Not Set').title(),
                     'False Positive': false_positive_results.get(key, 'Not Set').title(),
                     'Incomplete Spine': incomplete_spine_results.get(key, 'Not Set').title(),
-                    'Falsely Extended Spine': false_positive_quality_results.get(key, 'Not Set').title(),
+                    'Falsely Extended': false_positive_quality_results.get(key, 'Not Set').title(),
                     'Merged Spine': merged_spine_results.get(key, 'Not Set').title(),
                     'Split Spine': split_spine_results.get(key, 'Not Set').title(),
                 })
@@ -846,7 +846,7 @@ def validate_spines(morphology_path, mesh_path):
             field_targets = {
                 'False Positive': 'false_positive',
                 'Incomplete Spine': 'incomplete_spine',
-                'Falsely Extended Spine': 'false_positive_quality',
+                'Falsely Extended': 'false_positive_quality',
                 'Merged Spine': 'merged_spine',
                 'Split Spine': 'split_spine',
             }
@@ -2747,7 +2747,9 @@ def validate_spines(morphology_path, mesh_path):
     # Widgets
     # ============================================================
 
-    navigation_button_width = '158px'
+    navigation_button_width = '124px'
+    navigation_button_spacing = '8px'
+    status_button_width = '124px'
     btn_prev_sec = widgets.Button(
         description='Prev Section',
         icon='arrow-left',
@@ -2764,6 +2766,7 @@ def validate_spines(morphology_path, mesh_path):
             width=navigation_button_width,
             min_width=navigation_button_width,
             max_width=navigation_button_width,
+            margin=f'0 0 0 {navigation_button_spacing}',
         ),
     )
     btn_prev_spine = widgets.Button(
@@ -2782,6 +2785,7 @@ def validate_spines(morphology_path, mesh_path):
             width=navigation_button_width,
             min_width=navigation_button_width,
             max_width=navigation_button_width,
+            margin=f'0 0 0 {navigation_button_spacing}',
         ),
     )
 
@@ -2834,17 +2838,17 @@ def validate_spines(morphology_path, mesh_path):
     btn_missing_spines = widgets.Button(
         description='Missing Spines', button_style='danger', icon='warning',
         layout=widgets.Layout(
-            width=navigation_button_width,
-            min_width=navigation_button_width,
-            max_width=navigation_button_width,
+            width=status_button_width,
+            min_width=status_button_width,
+            max_width=status_button_width,
         ),
     )
     btn_no_missing_spines = widgets.Button(
         description='No Missing Spines', button_style='success', icon='check',
         layout=widgets.Layout(
-            width=navigation_button_width,
-            min_width=navigation_button_width,
-            max_width=navigation_button_width,
+            width=status_button_width,
+            min_width=status_button_width,
+            max_width=status_button_width,
         ),
     )
     btn_prev_subsection = widgets.Button(
@@ -2863,6 +2867,7 @@ def validate_spines(morphology_path, mesh_path):
             width=navigation_button_width,
             min_width=navigation_button_width,
             max_width=navigation_button_width,
+            margin=f'0 0 0 {navigation_button_spacing}',
         ),
     )
     btn_missing_subsection = widgets.Button(
@@ -2870,9 +2875,9 @@ def validate_spines(morphology_path, mesh_path):
         button_style='danger',
         icon='warning',
         layout=widgets.Layout(
-            width=navigation_button_width,
-            min_width=navigation_button_width,
-            max_width=navigation_button_width,
+            width=status_button_width,
+            min_width=status_button_width,
+            max_width=status_button_width,
         ),
     )
 
@@ -3013,7 +3018,7 @@ def validate_spines(morphology_path, mesh_path):
         value=0 if spiny_sections else None,
         description='',
         style={'description_width': 'initial'},
-        layout=widgets.Layout(width='320px')
+        layout=widgets.Layout(width='258px')
     )
 
     def build_subsection_dropdown_options():
@@ -3039,7 +3044,7 @@ def validate_spines(morphology_path, mesh_path):
         value=0 if section_subsections.get(spiny_sections[0][0]) else None,
         description='',
         style={'description_width': 'initial'},
-        layout=widgets.Layout(width='320px'),
+        layout=widgets.Layout(width='258px'),
     )
 
     def refresh_subsection_dropdown():
@@ -3096,7 +3101,7 @@ def validate_spines(morphology_path, mesh_path):
         value=None,
         description='',
         style={'description_width': 'initial'},
-        layout=widgets.Layout(width='320px')
+        layout=widgets.Layout(width='260px')
     )
 
 
@@ -3208,12 +3213,22 @@ def validate_spines(morphology_path, mesh_path):
     row_layout = widgets.Layout(
         display='flex', flex_flow='row wrap', align_items='center', width='100%'
     )
+    navigation_button_row_layout = widgets.Layout(
+        display='flex',
+        flex_flow='row nowrap',
+        align_items='center',
+        justify_content='flex-end',
+        width='260px',
+        min_width='260px',
+        max_width='260px',
+        gap='0px',
+    )
     group_layout = widgets.Layout(width='100%', margin='2px 0 4px 0')
 
     analysis_labels = [
         'False Positive',
         'Incomplete Spine',
-        'Falsely Extended Spine',
+        'Falsely Extended',
         'Merged Spine',
         'Split Spine',
         'Validity',
@@ -3225,7 +3240,7 @@ def validate_spines(morphology_path, mesh_path):
         'Incomplete Spine': (
             'The spine is present, but its segmented geometry is incomplete or missing part of the spine.'
         ),
-        'Falsely Extended Spine': (
+        'Falsely Extended': (
             'The segmented geometry extends beyond the actual spine or includes unrelated geometry.'
         ),
         'Merged Spine': (
@@ -3239,7 +3254,7 @@ def validate_spines(morphology_path, mesh_path):
         ),
     }
     # Approximate rendered label width from the longest label, with room for the help icon.
-    analysis_label_width = f'{max(map(len, analysis_labels)) * 8 + 20}px'
+    analysis_label_width = f'{max(map(len, analysis_labels)) * 8 + 4}px'
     analysis_label_layout = widgets.Layout(
         width=analysis_label_width,
         min_width=analysis_label_width,
@@ -3281,8 +3296,10 @@ def validate_spines(morphology_path, mesh_path):
                 display='flex',
                 flex_flow='row nowrap',
                 align_items='center',
-                justify_content='flex-start',
-                width='100%',
+                justify_content='space-between',
+                width='260px',
+                min_width='260px',
+                max_width='260px',
                 margin='2px 0',
             ),
         )
@@ -3299,7 +3316,7 @@ def validate_spines(morphology_path, mesh_path):
             btn_incomplete_spines_no,
         ),
         analysis_row(
-            'Falsely Extended Spine',
+            'Falsely Extended',
             btn_false_positive_quality_yes,
             btn_false_positive_quality_no,
         ),
@@ -3360,9 +3377,12 @@ def validate_spines(morphology_path, mesh_path):
     for button in all_buttons:
         button.layout.height = button_height
 
-    section_nav = widgets.HBox([btn_prev_sec, btn_next_sec], layout=row_layout)
+    section_nav = widgets.HBox(
+        [btn_prev_sec, btn_next_sec], layout=navigation_button_row_layout
+    )
     spine_nav_buttons = widgets.HBox(
-        [btn_prev_spine, btn_next_spine], layout=row_layout
+        [btn_prev_spine, btn_next_spine],
+        layout=navigation_button_row_layout,
     )
     spine_nav = widgets.VBox(
         [spine_dropdown, spine_nav_buttons],
@@ -3410,7 +3430,7 @@ def validate_spines(morphology_path, mesh_path):
             subsection_dropdown,
             widgets.HBox(
                 [btn_prev_subsection, btn_next_subsection],
-                layout=row_layout,
+                layout=navigation_button_row_layout,
             ),
             widgets.HBox([btn_missing_subsection], layout=row_layout),
         ],

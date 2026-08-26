@@ -375,7 +375,7 @@ Every explicitly selected spine has five analysis categories. Each category prov
 | --- | --- | --- |
 | **False Positive** | The displayed object is not a real spine and is likely a segmentation artifact. | The displayed object corresponds to a real spine. |
 | **Incomplete Spine** | The segmented geometry represents only part of the real spine or is missing geometry. | The spine geometry appears complete. |
-| **Falsely Extended Spine** | The segmentation extends beyond the actual spine or includes unrelated geometry. | The segmented geometry stays within the actual spine. |
+| **Falsely Extended** | The segmentation extends beyond the actual spine or includes unrelated geometry. | The segmented geometry stays within the actual spine. |
 | **Merged Spine** | Two or more distinct spines have been incorrectly combined into one segmented object. | The object represents one spine without an apparent merge. |
 | **Split Spine** | One real spine has been incorrectly divided into multiple segmented objects. | The object is not a split representation of one spine. |
 
@@ -618,7 +618,7 @@ The section table records:
 - `Remaining Spines to Validate`;
 - `False Positives`;
 - `Incomplete Spines`;
-- `Falsely Extended Spines`;
+- `Falsely Extended`;
 - `Merged Spines`;
 - `Split Spines`; and
 - `Missing Segmented Spines`.
@@ -633,7 +633,7 @@ The spine table records:
 - `Validity`;
 - `False Positive`;
 - `Incomplete Spine`;
-- `Falsely Extended Spine`;
+- `Falsely Extended`;
 - `Merged Spine`; and
 - `Split Spine`.
 
