@@ -30,6 +30,129 @@ except ImportError:  # pragma: no cover - exercised only in minimal installation
     cKDTree = None
 
 
+def _migrate_legacy_validation_csv(validation_csv_path, morphology):
+    """Convert the legacy long-form CSV to the version-2 two-table format."""
+    validation_csv_path = Path(validation_csv_path)
+    if not validation_csv_path.is_file():
+        return
+    with validation_csv_path.open('r', newline='', encoding='utf-8') as handle:
+        reader = csv.DictReader(handle)
+        if reader.fieldnames != [
+            'record_type', 'schema_version', 'source_id',
+            'section_id', 'spine_index', 'status',
+        ]:
+            return
+        rows = list(reader)
+
+    section_ids = [
+        section.id for section in morphology.morphology.sections
+        if len(spines_lib.get_spine_ids_by_section_id(morphology, section.id)) > 0
+    ]
+    spine_ids_by_section = {
+        section_id: list(
+            spines_lib.get_spine_ids_by_section_id(morphology, section_id)
+        )
+        for section_id in section_ids
+    }
+    section_counts = {
+        section_id: len(spine_ids)
+        for section_id, spine_ids in spine_ids_by_section.items()
+    }
+    validity = {}
+    issue_maps = {
+        'false_positive': {},
+        'incomplete_spine': {},
+        'false_positive_quality': {},
+        'merged_spine': {},
+        'split_spine': {},
+    }
+    section_missing = {}
+    for row in rows:
+        section_id = int(row['section_id'])
+        record_type = row['record_type']
+        status = row['status'].strip().lower()
+        if record_type == 'section':
+            section_missing[section_id] = status
+            continue
+        spine_index = int(row['spine_index'])
+        key = (section_id, spine_index)
+        if record_type == 'spine':
+            validity[key] = status
+        elif record_type in issue_maps:
+            issue_maps[record_type][key] = status
+
+    section_fields = [
+        'Section', 'Number Spines', 'Validated (Yes or No)',
+        'Remaining Spines to Validate', 'False Positives',
+        'Incomplete Spines', 'Falsely Extended Spines',
+        'Merged Spines', 'Split Spines', 'Missing Segmented Spines',
+    ]
+    spine_fields = [
+        'Section ID', 'Spine ID', 'Validity', 'False Positive',
+        'Incomplete Spine', 'Falsely Extended Spine', 'Merged Spine',
+        'Split Spine',
+    ]
+    issue_columns = (
+        ('False Positive', 'false_positive'),
+        ('Incomplete Spine', 'incomplete_spine'),
+        ('Falsely Extended Spine', 'false_positive_quality'),
+        ('Merged Spine', 'merged_spine'),
+        ('Split Spine', 'split_spine'),
+    )
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode='w', newline='', encoding='utf-8', delete=False,
+            dir=validation_csv_path.parent,
+            prefix=f'.{validation_csv_path.name}.', suffix='.tmp'
+        ) as handle:
+            temporary_path = Path(handle.name)
+            writer = csv.writer(handle)
+            writer.writerow(['validation_format', '2'])
+            writer.writerow(['table', 'section'])
+            writer.writerow(section_fields)
+            for section_id in section_ids:
+                count = section_counts[section_id]
+                validated_count = sum(
+                    saved_section_id == section_id
+                    for saved_section_id, _ in validity
+                )
+                finding_counts = [
+                    sum(
+                        status == 'yes'
+                        for (saved_section_id, _), status in results.items()
+                        if saved_section_id == section_id
+                    )
+                    for results in issue_maps.values()
+                ]
+                writer.writerow([
+                    section_id,
+                    count,
+                    'Yes' if validated_count == count else 'No',
+                    max(count - validated_count, 0),
+                    *finding_counts,
+                    section_missing.get(section_id, 'Not Set').title(),
+                ])
+            writer.writerow(['table', 'spine'])
+            writer.writerow(spine_fields)
+            for section_id in section_ids:
+                for spine_index, spine_id in enumerate(spine_ids_by_section[section_id]):
+                    key = (section_id, spine_index)
+                    writer.writerow([
+                        section_id,
+                        int(spine_id),
+                        validity.get(key, 'Not Set').title(),
+                        *[
+                            issue_maps[record_type].get(key, 'Not Set').title()
+                            for _column, record_type in issue_columns
+                        ],
+                    ])
+        os.replace(temporary_path, validation_csv_path)
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            temporary_path.unlink()
+
+
 class _MeshSpatialIndex:
     """Query full mesh vertices inside axis-aligned boxes."""
 
@@ -142,9 +265,20 @@ class _MeshSurfaceSampler:
 
 def validate_spines(morphology_path, mesh_path):
 
+    # Keep all proofreading artifacts beside the input mesh, rather than beside
+    # the morphology file or the notebook's working directory.
+    mesh_path = Path(mesh_path)
+    mesh_path_for_loader = str(mesh_path)
+    proofreading_dir = mesh_path.with_name(f'{mesh_path.stem}_proofreading')
+    proofreading_dir.mkdir(parents=True, exist_ok=True)
+
     # Load the spiny morphology and capture the assessment identity once so all
     # displayed and registered assessment metadata uses the same user value.
     morphology = data_loading.load_spiny_morphology(morphology_path)
+    validation_csv_path = proofreading_dir / (
+        f'{Path(morphology_path).stem}_validation.csv'
+    )
+    _migrate_legacy_validation_csv(validation_csv_path, morphology)
     morphology_section_count = len(list(morphology.morphology.sections))
     total_spines = int(morphology.spines.spine_count)
     user_email = os.environ.get('OBI_USERNAME', 'unknown-user')
@@ -157,11 +291,11 @@ def validate_spines(morphology_path, mesh_path):
     # deterministic 15% sample for the mesh context shown at all times.
     if SECTION_DENSE_SAMPLE_MULTIPLIER > 0:
         full_mesh_vertices, full_mesh_faces = data_loading.load_mesh_vertices_and_faces_pylmesh(
-            mesh_path, scale_factor=1e-3
+            mesh_path_for_loader, scale_factor=1e-3
         )
     else:
         full_mesh_vertices = data_loading.load_mesh_vertices_pylmesh(
-            mesh_path, scale_factor=1e-3
+            mesh_path_for_loader, scale_factor=1e-3
         )
         full_mesh_faces = None
 
@@ -349,13 +483,24 @@ def validate_spines(morphology_path, mesh_path):
     # Section-level segmented-spine review: section_id -> 'missing' | 'no missing'
     section_missing_results = {}
     # Validation state persistence
-    VALIDATION_SCHEMA_VERSION = '1'
-    VALIDATION_CSV_FIELDS = [
+    VALIDATION_SCHEMA_VERSION = '2'
+    LEGACY_VALIDATION_CSV_FIELDS = [
         'record_type', 'schema_version', 'source_id',
         'section_id', 'spine_index', 'status',
     ]
+    SECTION_CSV_FIELDS = [
+        'Section', 'Number Spines', 'Validated (Yes or No)',
+        'Remaining Spines to Validate', 'False Positives',
+        'Incomplete Spines', 'Falsely Extended Spines',
+        'Merged Spines', 'Split Spines', 'Missing Segmented Spines',
+    ]
+    SPINE_CSV_FIELDS = [
+        'Section ID', 'Spine ID', 'Validity', 'False Positive',
+        'Incomplete Spine', 'Falsely Extended Spine', 'Merged Spine',
+        'Split Spine',
+    ]
     validation_source_id = Path(morphology_path).name
-    validation_csv_path = Path(morphology_path).with_name(
+    validation_csv_path = proofreading_dir / (
         f'{Path(morphology_path).stem}_validation.csv'
     )
     validation_save_task = [None]
@@ -364,43 +509,65 @@ def validate_spines(morphology_path, mesh_path):
     screenshot_request_token = [0]
     screenshot_save_task = [None]
     registration_task = [None]
+    report_task = [None]
 
 
     def snapshot_validation_state():
-        """Create an immutable CSV-ready snapshot of all validation maps."""
-        rows = []
-        spine_analysis_maps = (
-            ('spine', validation_results),
-            ('false_positive', false_positive_results),
-            ('incomplete_spine', incomplete_spine_results),
-            ('false_positive_quality', false_positive_quality_results),
-            ('merged_spine', merged_spine_results),
-            ('split_spine', split_spine_results),
-        )
-        for record_type, results in spine_analysis_maps:
-            for (sec_id, spine_idx), status in sorted(results.items()):
-                rows.append({
-                    'record_type': record_type,
-                    'schema_version': VALIDATION_SCHEMA_VERSION,
-                    'source_id': validation_source_id,
-                    'section_id': str(sec_id),
-                    'spine_index': str(spine_idx),
-                    'status': status,
-                })
-        for sec_id, status in sorted(section_missing_results.items()):
-            rows.append({
-                'record_type': 'section',
-                'schema_version': VALIDATION_SCHEMA_VERSION,
-                'source_id': validation_source_id,
-                'section_id': str(sec_id),
-                'spine_index': '',
-                'status': status,
+        """Create an immutable two-table snapshot of all validation state."""
+        section_rows = []
+        for sec_id, spine_count in spiny_sections:
+            validated_count = sum(
+                1 for (saved_sec_id, _), _status in validation_results.items()
+                if saved_sec_id == sec_id
+            )
+            finding_maps = (
+                false_positive_results,
+                incomplete_spine_results,
+                false_positive_quality_results,
+                merged_spine_results,
+                split_spine_results,
+            )
+            finding_counts = [
+                sum(
+                    status == 'yes'
+                    for (saved_sec_id, _), status in results.items()
+                    if saved_sec_id == sec_id
+                )
+                for results in finding_maps
+            ]
+            section_rows.append({
+                'Section': sec_id,
+                'Number Spines': spine_count,
+                'Validated (Yes or No)': 'Yes' if validated_count == spine_count else 'No',
+                'Remaining Spines to Validate': max(spine_count - validated_count, 0),
+                'False Positives': finding_counts[0],
+                'Incomplete Spines': finding_counts[1],
+                'Falsely Extended Spines': finding_counts[2],
+                'Merged Spines': finding_counts[3],
+                'Split Spines': finding_counts[4],
+                'Missing Segmented Spines': section_missing_results.get(sec_id, 'Not Set').title(),
             })
-        return rows
+
+        spine_rows = []
+        for sec_id, _spine_count in spiny_sections:
+            spine_ids = list(morphology.spines.spine_indices_for_section(sec_id + 1))
+            for spine_idx, spine_id in enumerate(spine_ids):
+                key = (sec_id, spine_idx)
+                spine_rows.append({
+                    'Section ID': sec_id,
+                    'Spine ID': int(spine_id),
+                    'Validity': validation_results.get(key, 'Not Set').title(),
+                    'False Positive': false_positive_results.get(key, 'Not Set').title(),
+                    'Incomplete Spine': incomplete_spine_results.get(key, 'Not Set').title(),
+                    'Falsely Extended Spine': false_positive_quality_results.get(key, 'Not Set').title(),
+                    'Merged Spine': merged_spine_results.get(key, 'Not Set').title(),
+                    'Split Spine': split_spine_results.get(key, 'Not Set').title(),
+                })
+        return {'section_rows': section_rows, 'spine_rows': spine_rows}
 
 
-    def write_validation_csv(path, rows):
-        """Atomically write a validation snapshot beside the source morphology."""
+    def write_validation_csv(path, snapshot):
+        """Atomically write the section and spine validation tables."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary_path = None
@@ -410,9 +577,24 @@ def validate_spines(morphology_path, mesh_path):
                 dir=path.parent, prefix=f'.{path.name}.', suffix='.tmp'
             ) as handle:
                 temporary_path = Path(handle.name)
-                writer = csv.DictWriter(handle, fieldnames=VALIDATION_CSV_FIELDS)
-                writer.writeheader()
-                writer.writerows(rows)
+                writer = csv.writer(handle)
+                writer.writerow(['validation_format', VALIDATION_SCHEMA_VERSION])
+                writer.writerow(['table', 'section'])
+                writer.writerow(SECTION_CSV_FIELDS)
+                writer.writerows(
+                    [
+                        [row[field] for field in SECTION_CSV_FIELDS]
+                        for row in snapshot['section_rows']
+                    ]
+                )
+                writer.writerow(['table', 'spine'])
+                writer.writerow(SPINE_CSV_FIELDS)
+                writer.writerows(
+                    [
+                        [row[field] for field in SPINE_CSV_FIELDS]
+                        for row in snapshot['spine_rows']
+                    ]
+                )
             os.replace(temporary_path, path)
         finally:
             if temporary_path is not None and temporary_path.exists():
@@ -420,85 +602,150 @@ def validate_spines(morphology_path, mesh_path):
 
 
     def read_validation_csv(path):
-        """Read and validate a saved validation snapshot."""
+        """Read either the current two-table or legacy validation CSV format."""
         path = Path(path)
         if not path.exists():
             return {}, {}, {}, {}, {}, {}, {}
 
         section_counts = dict(spiny_sections)
-        loaded_spines = {}
-        loaded_false_positives = {}
-        loaded_incomplete_spines = {}
-        loaded_false_positive_quality = {}
-        loaded_merged_spines = {}
-        loaded_split_spines = {}
+        targets = {
+            'spine': {},
+            'false_positive': {},
+            'incomplete_spine': {},
+            'false_positive_quality': {},
+            'merged_spine': {},
+            'split_spine': {},
+        }
         loaded_sections = {}
-        with path.open('r', newline='', encoding='utf-8') as handle:
-            reader = csv.DictReader(handle)
-            if reader.fieldnames != VALIDATION_CSV_FIELDS:
-                raise ValueError(f'Unexpected validation CSV headers in {path}')
-            for line_number, row in enumerate(reader, start=2):
-                if row.get('schema_version') != VALIDATION_SCHEMA_VERSION:
-                    raise ValueError(f'Unsupported validation CSV version at line {line_number}')
-                if row.get('source_id') != validation_source_id:
-                    raise ValueError(f'Validation CSV source does not match {validation_source_id}')
-                try:
-                    sec_id = int(row['section_id'])
-                except (TypeError, ValueError, KeyError) as exc:
-                    raise ValueError(f'Invalid section ID at line {line_number}') from exc
-                if sec_id not in section_counts:
-                    raise ValueError(f'Unknown section ID {sec_id} at line {line_number}')
 
-                record_type = row.get('record_type')
-                status = row.get('status')
-                if record_type == 'section':
-                    if row.get('spine_index', '') or status not in {'missing', 'no missing'}:
-                        raise ValueError(f'Invalid section record at line {line_number}')
-                    if sec_id in loaded_sections:
-                        raise ValueError(f'Duplicate section record at line {line_number}')
-                    loaded_sections[sec_id] = status
-                elif record_type in {
-                    'spine',
-                    'false_positive',
-                    'incomplete_spine',
-                    'false_positive_quality',
-                    'merged_spine',
-                    'split_spine',
-                }:
+        def parse_legacy():
+            with path.open('r', newline='', encoding='utf-8') as handle:
+                reader = csv.DictReader(handle)
+                if reader.fieldnames != LEGACY_VALIDATION_CSV_FIELDS:
+                    raise ValueError(f'Unexpected validation CSV headers in {path}')
+                for line_number, row in enumerate(reader, start=2):
+                    if row.get('schema_version') != '1':
+                        raise ValueError(f'Unsupported legacy validation CSV version at line {line_number}')
+                    if row.get('source_id') != validation_source_id:
+                        raise ValueError(f'Validation CSV source does not match {validation_source_id}')
                     try:
-                        spine_idx = int(row['spine_index'])
+                        sec_id = int(row['section_id'])
                     except (TypeError, ValueError, KeyError) as exc:
-                        raise ValueError(f'Invalid spine index at line {line_number}') from exc
-                    if not 0 <= spine_idx < section_counts[sec_id]:
-                        raise ValueError(f'Out-of-range spine index at line {line_number}')
-                    allowed_statuses = (
-                        {'valid', 'invalid'}
-                        if record_type == 'spine'
-                        else {'yes', 'no'}
-                    )
-                    if status not in allowed_statuses:
-                        raise ValueError(f'Invalid {record_type} status at line {line_number}')
-                    target = {
-                        'spine': loaded_spines,
-                        'false_positive': loaded_false_positives,
-                        'incomplete_spine': loaded_incomplete_spines,
-                        'false_positive_quality': loaded_false_positive_quality,
-                        'merged_spine': loaded_merged_spines,
-                        'split_spine': loaded_split_spines,
-                    }[record_type]
-                    key = (sec_id, spine_idx)
-                    if key in target:
-                        raise ValueError(f'Duplicate {record_type} record at line {line_number}')
-                    target[key] = status
-                else:
-                    raise ValueError(f'Unknown record type at line {line_number}')
+                        raise ValueError(f'Invalid section ID at line {line_number}') from exc
+                    if sec_id not in section_counts:
+                        raise ValueError(f'Unknown section ID {sec_id} at line {line_number}')
+                    record_type = row.get('record_type')
+                    status = row.get('status')
+                    if record_type == 'section':
+                        if row.get('spine_index', '') or status not in {'missing', 'no missing'}:
+                            raise ValueError(f'Invalid section record at line {line_number}')
+                        if sec_id in loaded_sections:
+                            raise ValueError(f'Duplicate section record at line {line_number}')
+                        loaded_sections[sec_id] = status
+                    elif record_type in targets:
+                        try:
+                            spine_idx = int(row['spine_index'])
+                        except (TypeError, ValueError, KeyError) as exc:
+                            raise ValueError(f'Invalid spine index at line {line_number}') from exc
+                        if not 0 <= spine_idx < section_counts[sec_id]:
+                            raise ValueError(f'Out-of-range spine index at line {line_number}')
+                        allowed_statuses = {'valid', 'invalid'} if record_type == 'spine' else {'yes', 'no'}
+                        if status not in allowed_statuses:
+                            raise ValueError(f'Invalid {record_type} status at line {line_number}')
+                        key = (sec_id, spine_idx)
+                        if key in targets[record_type]:
+                            raise ValueError(f'Duplicate {record_type} record at line {line_number}')
+                        targets[record_type][key] = status
+                    else:
+                        raise ValueError(f'Unknown record type at line {line_number}')
+
+        with path.open('r', newline='', encoding='utf-8') as handle:
+            first_row = next(csv.reader(handle), [])
+        if first_row != ['validation_format', VALIDATION_SCHEMA_VERSION]:
+            parse_legacy()
+        else:
+            with path.open('r', newline='', encoding='utf-8') as handle:
+                rows = [row for row in csv.reader(handle) if row]
+            if rows[:2] != [
+                ['validation_format', VALIDATION_SCHEMA_VERSION],
+                ['table', 'section'],
+            ]:
+                raise ValueError(f'Invalid validation table markers in {path}')
+            if len(rows) < 4 or rows[2] != SECTION_CSV_FIELDS:
+                raise ValueError(f'Unexpected section table headers in {path}')
+            row_index = 3
+            while row_index < len(rows) and rows[row_index] != ['table', 'spine']:
+                row = rows[row_index]
+                if len(row) != len(SECTION_CSV_FIELDS):
+                    raise ValueError(f'Invalid section row at line {row_index + 1}')
+                try:
+                    sec_id = int(row[0])
+                    number_spines = int(row[1])
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(f'Invalid section summary at line {row_index + 1}') from exc
+                if sec_id not in section_counts or number_spines != section_counts[sec_id]:
+                    raise ValueError(f'Section summary does not match morphology at line {row_index + 1}')
+                if sec_id in loaded_sections:
+                    raise ValueError(f'Duplicate section summary at line {row_index + 1}')
+                missing_status = row[9].strip().lower()
+                if missing_status not in {'missing', 'no missing', 'not set'}:
+                    raise ValueError(f'Invalid missing-spines status at line {row_index + 1}')
+                loaded_sections[sec_id] = missing_status
+                row_index += 1
+            if row_index >= len(rows) or rows[row_index] != ['table', 'spine']:
+                raise ValueError(f'Missing spine table marker in {path}')
+            row_index += 1
+            if row_index >= len(rows) or rows[row_index] != SPINE_CSV_FIELDS:
+                raise ValueError(f'Unexpected spine table headers in {path}')
+            row_index += 1
+            spine_ids_by_section = {
+                sec_id: list(morphology.spines.spine_indices_for_section(sec_id + 1))
+                for sec_id in section_counts
+            }
+            seen_spines = set()
+            field_targets = {
+                'False Positive': 'false_positive',
+                'Incomplete Spine': 'incomplete_spine',
+                'Falsely Extended Spine': 'false_positive_quality',
+                'Merged Spine': 'merged_spine',
+                'Split Spine': 'split_spine',
+            }
+            while row_index < len(rows):
+                row = rows[row_index]
+                if len(row) != len(SPINE_CSV_FIELDS):
+                    raise ValueError(f'Invalid spine row at line {row_index + 1}')
+                try:
+                    sec_id = int(row[0])
+                    spine_id = int(row[1])
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(f'Invalid spine identity at line {row_index + 1}') from exc
+                if sec_id not in spine_ids_by_section or spine_id not in spine_ids_by_section[sec_id]:
+                    raise ValueError(f'Unknown spine ID at line {row_index + 1}')
+                spine_idx = spine_ids_by_section[sec_id].index(spine_id)
+                key = (sec_id, spine_idx)
+                if key in seen_spines:
+                    raise ValueError(f'Duplicate spine row at line {row_index + 1}')
+                seen_spines.add(key)
+                validity = row[2].strip().lower()
+                if validity not in {'valid', 'invalid', 'not set', ''}:
+                    raise ValueError(f'Invalid validity at line {row_index + 1}')
+                if validity in {'valid', 'invalid'}:
+                    targets['spine'][key] = validity
+                for column_index, field_name in enumerate(SPINE_CSV_FIELDS[3:], start=3):
+                    status = row[column_index].strip().lower()
+                    if status not in {'yes', 'no', 'not set', ''}:
+                        raise ValueError(f'Invalid {field_name} status at line {row_index + 1}')
+                    if status in {'yes', 'no'}:
+                        targets[field_targets[field_name]][key] = status
+                row_index += 1
+
         return (
-            loaded_spines,
-            loaded_false_positives,
-            loaded_incomplete_spines,
-            loaded_false_positive_quality,
-            loaded_merged_spines,
-            loaded_split_spines,
+            targets['spine'],
+            targets['false_positive'],
+            targets['incomplete_spine'],
+            targets['false_positive_quality'],
+            targets['merged_spine'],
+            targets['split_spine'],
             loaded_sections,
         )
 
@@ -525,9 +772,9 @@ def validate_spines(morphology_path, mesh_path):
             ) from exc
 
         font_path = (
-            Path(__file__).resolve().parent / 'Arimo-Regular.ttf'
+            Path(__file__).resolve().parent / 'assets' / 'fonts' / 'Arimo-Regular.ttf'
             if '__file__' in globals()
-            else Path.cwd() / 'Arimo-Regular.ttf'
+            else Path.cwd() / 'examples' / 'assets' / 'fonts' / 'Arimo-Regular.ttf'
         )
         if not font_path.is_file():
             raise RuntimeError(f'Bundled assessment font not found: {font_path}')
@@ -701,7 +948,7 @@ def validate_spines(morphology_path, mesh_path):
                 loaded_merged_spines,
                 loaded_split_spines,
                 loaded_sections,
-            ) = await asyncio.to_thread(read_validation_csv, validation_csv_path)
+            ) = read_validation_csv(validation_csv_path)
         except Exception as exc:
             print(f'Could not restore validation state: {exc}')
             return
@@ -720,6 +967,7 @@ def validate_spines(morphology_path, mesh_path):
         split_spine_results.update(loaded_split_spines)
         section_missing_results.clear()
         section_missing_results.update(loaded_sections)
+        schedule_validation_save()
         refresh_section_dropdown()
         update_info()
         if (
@@ -745,6 +993,7 @@ def validate_spines(morphology_path, mesh_path):
 
     async def restore_and_start():
         await restore_validation_state()
+        await wait_for_validation_save()
         start_load_section(0)
 
 
@@ -871,7 +1120,7 @@ def validate_spines(morphology_path, mesh_path):
         at 1 for each new pair.
         """
         sec_id = spiny_sections[current_section_idx[0]][0]
-        output_dir = Path(morphology_path).parent
+        output_dir = proofreading_dir
 
         if spine_selected[0] and current_spine_data:
             spine_id = current_spine_id()
@@ -1048,7 +1297,7 @@ def validate_spines(morphology_path, mesh_path):
         date_time = datetime.now(timezone.utc).strftime('%y.%m.%d_%H.%M')
         user_token = re.sub(r'[^A-Za-z0-9_.-]+', '_', user_email).strip('._-')
         user_token = user_token or 'unknown-user'
-        return Path(morphology_path).parent / f'{mesh_id}_{user_token}_{date_time}'
+        return mesh_path.parent / f'{mesh_id}_{user_token}_{date_time}'
 
 
     def stage_registration_directory(destination, report_path):
@@ -1142,6 +1391,7 @@ def validate_spines(morphology_path, mesh_path):
                     report_path,
                     1600,
                     75,
+                    morphology_path,
                 )
 
                 registration_status.value = '<i>4/5 Creating CSV+PDF ZIP...</i>'
@@ -1199,6 +1449,53 @@ def validate_spines(morphology_path, mesh_path):
         registration_status.value = '<i>Registering assessment...</i>'
         btn_register_assessment.disabled = True
         registration_task[0] = asyncio.create_task(register_assessment_worker())
+
+
+    async def generate_report_worker():
+        """Persist the current assessment and create its analysis PDF."""
+        try:
+            report_status.value = '<i>Saving validation data...</i>'
+            await wait_for_validation_save()
+
+            screenshot_task = screenshot_save_task[0]
+            if screenshot_task is not None and not screenshot_task.done():
+                report_status.value = '<i>Waiting for the latest screenshot...</i>'
+                await screenshot_task
+
+            report_status.value = '<i>Generating PDF report...</i>'
+            report_module = importlib.import_module('validate_spine_analysis')
+            report_module = importlib.reload(report_module)
+            report_path = await asyncio.to_thread(
+                report_module.generate_report,
+                images_dir=validation_csv_path.parent,
+                csv_path=validation_csv_path,
+                fonts_dir=Path(report_module.__file__).resolve().parent,
+                output_dir=validation_csv_path.parent,
+            )
+            safe_report_path = html.escape(str(Path(report_path)))
+            report_status.value = (
+                f'<span style="color:#188038">'
+                f'Report created: {safe_report_path}</span>'
+            )
+        except Exception as exc:
+            error_detail = html.escape(f'{type(exc).__name__}: {exc}')
+            report_status.value = (
+                f'<span style="color:#c5221f">'
+                f'Report generation failed: {error_detail}</span>'
+            )
+            print(f'Report generation failed: {type(exc).__name__}: {exc}')
+        finally:
+            btn_generate_report.disabled = False
+            report_task[0] = None
+
+
+    def on_generate_report(_):
+        """Create the current assessment PDF without registering it."""
+        if report_task[0] is not None and not report_task[0].done():
+            return
+        btn_generate_report.disabled = True
+        report_status.value = '<i>Preparing report...</i>'
+        report_task[0] = asyncio.create_task(generate_report_worker())
 
 
     def focus_on_section(sec_id):
@@ -2057,7 +2354,11 @@ def validate_spines(morphology_path, mesh_path):
     btn_register_assessment = widgets.Button(
         description='Register', icon='upload'
     )
+    btn_generate_report = widgets.Button(
+        description='Generate Report', icon='file-text'
+    )
     registration_status = widgets.HTML(value='')
+    report_status = widgets.HTML(value='')
 
     btn_missing_spines = widgets.Button(
         description='Missing Spines', button_style='danger', icon='warning',
@@ -2311,6 +2612,7 @@ def validate_spines(morphology_path, mesh_path):
     btn_validity_invalid.on_click(on_validity_invalid)
     btn_screenshot.on_click(take_screenshot)
     btn_register_assessment.on_click(on_register_assessment)
+    btn_generate_report.on_click(on_generate_report)
     plot.observe(on_screenshot_ready, names='screenshot')
     btn_missing_spines.on_click(on_missing_segmented_spines)
     btn_no_missing_spines.on_click(on_no_missing_segmented_spines)
@@ -2543,7 +2845,11 @@ def validate_spines(morphology_path, mesh_path):
             '<span title="Click Register to generate the section-validity figure and register the assessment results." '
             'style="cursor:help; color:#5f6368;">&#9432;</span>'
         )),
-        btn_register_assessment,
+        widgets.HBox(
+            [btn_generate_report, btn_register_assessment],
+            layout=row_layout,
+        ),
+        report_status,
         registration_status,
     ], layout=widgets.Layout(width='100%', margin='14px 0 0 0'))
 
@@ -2584,6 +2890,33 @@ def validate_spines(morphology_path, mesh_path):
         float(morph_center[0]), float(morph_center[1]), float(morph_center[2]),
         0.0, 1.0, 0.0,
     ]
+
+    # Migrate an existing legacy CSV before handing control to the async UI.
+    # This keeps headless notebook execution and interactive startup consistent.
+    if validation_csv_path.is_file():
+        try:
+            (
+                loaded_spines,
+                loaded_false_positives,
+                loaded_incomplete_spines,
+                loaded_false_positive_quality,
+                loaded_merged_spines,
+                loaded_split_spines,
+                loaded_sections,
+            ) = read_validation_csv(validation_csv_path)
+            validation_results.update(loaded_spines)
+            false_positive_results.update(loaded_false_positives)
+            incomplete_spine_results.update(loaded_incomplete_spines)
+            false_positive_quality_results.update(loaded_false_positive_quality)
+            merged_spine_results.update(loaded_merged_spines)
+            split_spine_results.update(loaded_split_spines)
+            section_missing_results.update(loaded_sections)
+            write_validation_csv(
+                validation_csv_path,
+                snapshot_validation_state(),
+            )
+        except Exception as exc:
+            print(f'Could not migrate validation CSV: {exc}')
 
     # Display immediately, then restore saved labels before loading the first section.
     #display(widgets.VBox([controls, plot, stats_output]))

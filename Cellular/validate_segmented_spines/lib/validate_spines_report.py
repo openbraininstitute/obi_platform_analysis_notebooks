@@ -13,7 +13,7 @@ from morph_spines_visualizer.core import data_loading
 ISSUE_LABELS = {
     "false_positive": "False Positive",
     "incomplete_spine": "Incomplete Spine",
-    "false_positive_quality": "False Positive",
+    "false_positive_quality": "Falsely Extended",
     "merged_spine": "Merged Spine",
     "split_spine": "Split Spine",
 }
@@ -39,7 +39,7 @@ def _parse_screenshot(path: Path):
 
 
 def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    font_path = Path(__file__).resolve().parent / "Arimo-Regular.ttf"
+    font_path = Path(__file__).resolve().parent / "assets" / "fonts" / "Arimo-Regular.ttf"
     if font_path.is_file():
         try:
             return ImageFont.truetype(str(font_path), size)
@@ -54,13 +54,14 @@ def create_validation_report_pdf(
     pdf_path,
     max_dimension=1600,
     jpeg_quality=75,
+    morphology_path=None,
 ):
     """Create the three-part validation PDF used in registration.
 
     The report contains the section-validity figure, only sections marked
     ``missing`` in the CSV, and only spine screenshots with a positive issue
-    record. Spine screenshot global IDs are mapped to CSV-local indexes using
-    the morphology file next to the validation CSV.
+    record. ``morphology_path`` is supplied separately because the CSV may be
+    stored in the mesh's proofreading directory.
     """
     image_directory = Path(image_directory).expanduser()
     validation_csv_path = Path(validation_csv_path).expanduser()
@@ -75,8 +76,12 @@ def create_validation_report_pdf(
     if not 0 < jpeg_quality <= 100:
         raise ValueError("jpeg_quality must be between 1 and 100")
 
-    morphology_path = validation_csv_path.with_name(
-        validation_csv_path.name.removesuffix("_validation.csv") + ".h5"
+    morphology_path = (
+        Path(morphology_path).expanduser()
+        if morphology_path is not None
+        else validation_csv_path.with_name(
+            validation_csv_path.name.removesuffix("_validation.csv") + ".h5"
+        )
     )
     if not morphology_path.is_file():
         raise FileNotFoundError(
@@ -98,28 +103,69 @@ def create_validation_report_pdf(
             )
 
     missing_section_ids = set()
-    issue_records = {}
-    with validation_csv_path.open("r", newline="", encoding="utf-8") as handle:
-        for row in csv.DictReader(handle):
-            record_type = row.get("record_type")
-            if record_type == "section" and row.get("status") == "missing":
-                missing_section_ids.add(int(row["section_id"]))
-            elif record_type in ISSUE_LABELS and row.get("status") == "yes":
-                key = (int(row["section_id"]), int(row["spine_index"]))
-                issue_records.setdefault(key, []).append(ISSUE_LABELS[record_type])
-
-    morphology = data_loading.load_spiny_morphology(morphology_path)
     issue_labels = {}
-    spine_ids_by_section = {}
-    for section_id, spine_index in issue_records:
-        spine_ids = spine_ids_by_section.setdefault(
-            section_id,
-            list(morphology.spines.spine_indices_for_section(section_id + 1)),
-        )
-        if 0 <= spine_index < len(spine_ids):
-            issue_labels[(section_id, int(spine_ids[spine_index]))] = "; ".join(
-                issue_records[(section_id, spine_index)]
+    with validation_csv_path.open("r", newline="", encoding="utf-8") as handle:
+        rows = [row for row in csv.reader(handle) if row]
+
+    if rows and rows[0] == ["validation_format", "2"]:
+        section_marker = ["table", "section"]
+        spine_marker = ["table", "spine"]
+        section_fields = [
+            "Section", "Number Spines", "Validated (Yes or No)",
+            "Remaining Spines to Validate", "False Positives",
+            "Incomplete Spines", "Falsely Extended Spines",
+            "Merged Spines", "Split Spines", "Missing Segmented Spines",
+        ]
+        spine_fields = [
+            "Section ID", "Spine ID", "Validity", "False Positive",
+            "Incomplete Spine", "Falsely Extended Spine", "Merged Spine",
+            "Split Spine",
+        ]
+        if rows[1] != section_marker or rows[2] != section_fields:
+            raise ValueError(f"Invalid section table in {validation_csv_path}")
+        spine_marker_index = rows.index(spine_marker)
+        if rows[spine_marker_index + 1] != spine_fields:
+            raise ValueError(f"Invalid spine table in {validation_csv_path}")
+        error_columns = {
+            "False Positive": "False Positive",
+            "Incomplete Spine": "Incomplete Spine",
+            "Falsely Extended Spine": "Falsely Extended",
+            "Merged Spine": "Merged Spine",
+            "Split Spine": "Split Spine",
+        }
+        for row in rows[3:spine_marker_index]:
+            if row[9].strip().lower() == "missing":
+                missing_section_ids.add(int(row[0]))
+        for row in rows[spine_marker_index + 2:]:
+            section_id = int(row[0])
+            spine_id = int(row[1])
+            labels = [
+                label
+                for column, label in error_columns.items()
+                if row[spine_fields.index(column)].strip().lower() == "yes"
+            ]
+            if labels:
+                issue_labels[(section_id, spine_id)] = "; ".join(labels)
+    else:
+        issue_records = {}
+        with validation_csv_path.open("r", newline="", encoding="utf-8") as handle:
+            for row in csv.DictReader(handle):
+                record_type = row.get("record_type")
+                if record_type == "section" and row.get("status") == "missing":
+                    missing_section_ids.add(int(row["section_id"]))
+                elif record_type in ISSUE_LABELS and row.get("status") == "yes":
+                    key = (int(row["section_id"]), int(row["spine_index"]))
+                    issue_records.setdefault(key, []).append(ISSUE_LABELS[record_type])
+
+        morphology = data_loading.load_spiny_morphology(morphology_path)
+        spine_ids_by_section = {}
+        for (section_id, spine_index), labels in issue_records.items():
+            spine_ids = spine_ids_by_section.setdefault(
+                section_id,
+                list(morphology.spines.spine_indices_for_section(section_id + 1)),
             )
+            if 0 <= spine_index < len(spine_ids):
+                issue_labels[(section_id, int(spine_ids[spine_index]))] = "; ".join(labels)
 
     section_images = []
     spine_images = []
