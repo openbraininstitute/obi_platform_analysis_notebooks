@@ -1887,18 +1887,23 @@ def validate_spines(morphology_path, mesh_path):
             yes_button.button_style = 'warning' if value == 'yes' else ''
             no_button.button_style = 'success' if value == 'no' else ''
 
+        issue_results = (
+            false_positive_results,
+            incomplete_spine_results,
+            false_positive_quality_results,
+            merged_spine_results,
+            split_spine_results,
+        )
         has_defect = spine_selected_now and any(
             results.get(key) == 'yes'
-            for results in (
-                false_positive_results,
-                incomplete_spine_results,
-                false_positive_quality_results,
-                merged_spine_results,
-                split_spine_results,
-            )
+            for results in issue_results
         )
-        btn_validity_valid.disabled = not spine_selected_now or has_defect
-        btn_validity_invalid.disabled = not spine_selected_now
+        all_issues_no = spine_selected_now and all(
+            results.get(key) == 'no'
+            for results in issue_results
+        )
+        btn_validity_valid.disabled = not all_issues_no
+        btn_validity_invalid.disabled = not has_defect
 
         btn_next_spine.disabled = (
             not bool(current_spine_meshes_k3d)
