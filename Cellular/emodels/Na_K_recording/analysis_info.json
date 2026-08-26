@@ -21,6 +21,6 @@
         "pandas>=2.0.0",
         "entitysdk>=0.5.0",
         "obi-auth>=0.3.0",
-        "obi-notebook>=0.1.dev10"
+        "obi-notebook>=0.5.4"
     ]
 }
