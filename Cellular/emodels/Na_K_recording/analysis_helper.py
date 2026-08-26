@@ -27,6 +27,8 @@ __all__ = [
     "entries_to_df",
     "load_simulation_results",
     "metadata_units",
+    "normalize_trace_bundle",
+    "plot_normalized_voltage_and_currents",
     "plot_voltage_and_currents",
     "plot_zoomed_ap",
     "prepare_trace_bundle",
@@ -323,6 +325,67 @@ def _plot_arrays(
     if len(arrays[0]) < 2:
         raise ValueError("Plot inputs must contain at least two samples.")
     return arrays
+
+
+def normalize_trace_bundle(
+    t: Sequence[float],
+    v: Sequence[float],
+    ina: Sequence[float],
+    ik: Sequence[float],
+) -> dict[str, np.ndarray]:
+    """Normalize voltage and currents for dimensionless shape comparison.
+
+    Voltage is scaled from its initial value to its maximum value. Each
+    current is divided by its maximum absolute magnitude, preserving polarity.
+    The input arrays are not modified.
+    """
+    t, v, ina, ik = _plot_arrays(t, v, ina, ik)
+    if any(not np.all(np.isfinite(array)) for array in (t, v, ina, ik)):
+        raise ValueError("Normalization inputs must contain only finite values.")
+
+    voltage_baseline = float(v[0])
+    voltage_scale = float(np.max(v) - voltage_baseline)
+    if voltage_scale <= 0:
+        raise ValueError("Voltage must rise above its initial baseline to be normalized.")
+
+    current_scales = {
+        "ina": float(np.max(np.abs(ina))),
+        "ik": float(np.max(np.abs(ik))),
+    }
+    for name, scale in current_scales.items():
+        if scale <= 0:
+            raise ValueError(f"{name} must contain a non-zero value to be normalized.")
+
+    return {
+        "t": t,
+        "v": (v - voltage_baseline) / voltage_scale,
+        "ina": ina / current_scales["ina"],
+        "ik": ik / current_scales["ik"],
+    }
+
+
+def plot_normalized_voltage_and_currents(
+    t: Sequence[float],
+    v: Sequence[float],
+    ina: Sequence[float],
+    ik: Sequence[float],
+):
+    """Plot normalized voltage, Na current, and K current for shape comparison."""
+    plt = _get_pyplot()
+    normalized = normalize_trace_bundle(t, v, ina, ik)
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.plot(normalized["t"], normalized["v"], color="black", label="Voltage")
+    ax.plot(normalized["t"], normalized["ina"], color="blue", label="iNa")
+    ax.plot(normalized["t"], normalized["ik"], color="red", alpha=0.7, label="iK")
+    ax.axhline(0, color="0.7", linewidth=0.8)
+    ax.set_ylabel("Normalized amplitude")
+    ax.set_xlabel("Time (ms)")
+    ax.set_title("Normalized voltage and Na⁺ / K⁺ waveform shapes")
+    ax.legend()
+    fig.tight_layout()
+    plt.show()
+    return fig, ax
 
 
 def plot_voltage_and_currents(

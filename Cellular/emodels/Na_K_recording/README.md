@@ -21,7 +21,8 @@ The notebook exposes the analysis choices directly:
 1. inspect the result summary and trace catalog;
 2. select the recording location, stimulus, and variable names explicitly;
 3. plot voltage, Na⁺ current, and K⁺ current over the full recording;
-4. inspect one action potential with a dual-axis voltage/current plot.
+4. inspect one action potential with a dual-axis voltage/current plot;
+5. compare normalized voltage, Na⁺, and K⁺ waveform shapes while retaining the raw physical-unit plots.
 
 ## Use
 Install the dependencies listed in `analysis_info.json`. Open `analysis_notebook.ipynb`, use the project picker to select the VLab and project, then provide or select one precomputed result ID and execute the analysis cells. Authentication and asset download use the selected platform project context; no new simulation is run.
