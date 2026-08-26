@@ -1161,6 +1161,170 @@ def validate_spines(morphology_path, mesh_path):
         return output_dir / f'{prefix}{next_sequence}.png'
 
 
+    SCALE_BAR_UNIT_LABEL = 'µm'
+    SCALE_BAR_WORLD_UNITS_PER_DISPLAY_UNIT = 1.0
+
+    def scale_bar_js():
+        """Build a screen-fixed, camera-aware scale-bar overlay."""
+        unit_label = SCALE_BAR_UNIT_LABEL.replace('\\', '\\\\').replace("'", "\\'")
+        world_units_per_display_unit = SCALE_BAR_WORLD_UNITS_PER_DISPLAY_UNIT
+        return f"""
+(() => {{
+    const widgetView = this;
+    const scaleBarId = 'obi-scale-bar-overlay';
+    const unitLabel = '{unit_label}';
+    const worldUnitsPerDisplayUnit = {world_units_per_display_unit};
+    const canvas = K3DInstance.getWorld().renderer.domElement;
+    if (!canvas) {{
+        return;
+    }}
+
+    const host = canvas.parentElement || canvas;
+    if (host !== canvas && getComputedStyle(host).position === 'static') {{
+        host.style.position = 'relative';
+    }}
+
+    let overlay = host.querySelector('#' + scaleBarId);
+    if (!overlay) {{
+        overlay = document.createElement('div');
+        overlay.id = scaleBarId;
+        overlay.setAttribute('aria-label', '3D viewer scale bar');
+        overlay.style.cssText = [
+            'position:absolute',
+            'left:14px',
+            'bottom:14px',
+            'z-index:20',
+            'display:flex',
+            'flex-direction:column',
+            'align-items:flex-start',
+            'gap:4px',
+            'padding:5px 7px 6px',
+            'border-radius:3px',
+            'background:rgba(0,0,0,0.58)',
+            'color:#ffffff',
+            'font-family:sans-serif',
+            'font-size:12px',
+            'font-weight:600',
+            'line-height:1.1',
+            'pointer-events:none',
+            'user-select:none',
+            'box-sizing:border-box',
+            'white-space:nowrap'
+        ].join(';');
+
+        const label = document.createElement('div');
+        label.id = scaleBarId + '-label';
+        const bar = document.createElement('div');
+        bar.id = scaleBarId + '-bar';
+        bar.style.cssText = [
+            'height:4px',
+            'min-width:1px',
+            'background:#ffffff',
+            'border:1px solid #111111',
+            'box-sizing:border-box'
+        ].join(';');
+        overlay.appendChild(label);
+        overlay.appendChild(bar);
+        host.appendChild(overlay);
+    }}
+
+    const label = overlay.querySelector('#' + scaleBarId + '-label');
+    const bar = overlay.querySelector('#' + scaleBarId + '-bar');
+    const world = K3DInstance.getWorld();
+    let framePending = false;
+
+    const update = () => {{
+        const rect = canvas.getBoundingClientRect();
+        const canvasWidth = rect.width;
+        const canvasHeight = rect.height;
+        if (!(canvasWidth > 0 && canvasHeight > 0)) {{
+            return;
+        }}
+
+        const cameraValues = widgetView.model && widgetView.model.get('camera');
+        if (!cameraValues || cameraValues.length < 6) {{
+            return;
+        }}
+        const cameraPosition = [
+            Number(cameraValues[0]),
+            Number(cameraValues[1]),
+            Number(cameraValues[2])
+        ];
+        const cameraTarget = [
+            Number(cameraValues[3]),
+            Number(cameraValues[4]),
+            Number(cameraValues[5])
+        ];
+        const cameraDistance = Math.hypot(
+            cameraPosition[0] - cameraTarget[0],
+            cameraPosition[1] - cameraTarget[1],
+            cameraPosition[2] - cameraTarget[2]
+        );
+        if (!(cameraDistance > 0)) {{
+            return;
+        }}
+
+        const camera = world.camera;
+        const fieldOfView = camera && Number.isFinite(Number(camera.fov))
+            ? Number(camera.fov)
+            : 45;
+        const worldUnitsPerPixel = (
+            2 * cameraDistance * Math.tan(fieldOfView * Math.PI / 360)
+        ) / canvasHeight;
+        if (!(worldUnitsPerPixel > 0)) {{
+            return;
+        }}
+
+        const targetPixels = Math.min(180, Math.max(90, canvasWidth * 0.22));
+        const rawWorldLength = (
+            worldUnitsPerPixel * targetPixels * worldUnitsPerDisplayUnit
+        );
+        const exponent = Math.floor(Math.log10(rawWorldLength));
+        const magnitude = Math.pow(10, exponent);
+        const candidates = [1, 2, 5, 10];
+        const normalized = rawWorldLength / magnitude;
+        const niceFactor = candidates.reduce((closest, candidate) =>
+            Math.abs(candidate - normalized) < Math.abs(closest - normalized)
+                ? candidate
+                : closest
+        );
+        const worldLength = niceFactor * magnitude;
+        const displayLength = worldLength / worldUnitsPerDisplayUnit;
+        const barPixels = Math.max(1, Math.round(worldLength / worldUnitsPerPixel));
+        const labelValue = displayLength >= 10
+            ? String(Math.round(displayLength))
+            : displayLength.toFixed(displayLength < 1 ? 2 : 1).replace(/\\.0+$/, '');
+
+        bar.style.width = barPixels + 'px';
+        label.textContent = labelValue + ' ' + unitLabel;
+        overlay.setAttribute('aria-label', 'Scale bar: ' + label.textContent);
+    }};
+
+    const refresh = () => {{
+        if (framePending) {{
+            return;
+        }}
+        framePending = true;
+        window.requestAnimationFrame(() => {{
+            framePending = false;
+            update();
+        }});
+    }};
+
+    update();
+    window.addEventListener('resize', refresh, {{passive:true}});
+    if (typeof ResizeObserver !== 'undefined') {{
+        new ResizeObserver(refresh).observe(host);
+    }}
+    if (widgetView.model && typeof widgetView.model.on === 'function') {{
+        widgetView.model.on('change:camera', refresh);
+        widgetView.model.on('change:background_color', refresh);
+    }}
+    window.setInterval(update, 200);
+}})();
+"""
+
+
     def live_canvas_capture_js(request_token):
         """Build frontend code that copies the already-rendered WebGL canvas."""
         return f"""
@@ -2768,6 +2932,43 @@ def validate_spines(morphology_path, mesh_path):
         ),
     ], layout=widgets.Layout(width='100%'))
 
+    # The current ipywidgets theme uses a 30 px default button height. Set every
+    # button to 27 px (90% of the default) while preserving its existing width,
+    # style, and other layout properties.
+    button_height = '25px'
+    all_buttons = (
+        btn_prev_sec,
+        btn_next_sec,
+        btn_prev_spine,
+        btn_next_spine,
+        btn_false_positive_yes,
+        btn_false_positive_no,
+        btn_incomplete_spines_yes,
+        btn_incomplete_spines_no,
+        btn_false_positive_quality_yes,
+        btn_false_positive_quality_no,
+        btn_merged_spine_yes,
+        btn_merged_spine_no,
+        btn_split_spine_yes,
+        btn_split_spine_no,
+        btn_validity_valid,
+        btn_validity_invalid,
+        btn_screenshot,
+        btn_register_assessment,
+        btn_generate_report,
+        btn_missing_spines,
+        btn_no_missing_spines,
+        btn_xy,
+        btn_negative_xy,
+        btn_xz,
+        btn_negative_xz,
+        btn_yz,
+        btn_negative_yz,
+        btn_toggle_background,
+    )
+    for button in all_buttons:
+        button.layout.height = button_height
+
     section_nav = widgets.HBox([btn_prev_sec, btn_next_sec], layout=row_layout)
     spine_nav_buttons = widgets.HBox(
         [btn_prev_spine, btn_next_spine], layout=row_layout
@@ -2946,6 +3147,8 @@ def validate_spines(morphology_path, mesh_path):
     #display(widgets.VBox([controls, plot, stats_output]))
     display(controls)
     plot.display()
+    # Install the scale bar after PlotView creates the WebGL canvas.
+    plot.additional_js_code = scale_bar_js()
     display(stats_output)
 
     restore_task = asyncio.create_task(restore_and_start())
