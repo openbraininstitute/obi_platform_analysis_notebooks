@@ -1,0 +1,26 @@
+{
+    "name": "Analysis of recorded Na⁺ and K⁺ currents during an action potential",
+    "authors": ["OBI", "Ilkan Kiliç"],
+    "description": "This notebook loads precomputed SingleNeuronSimulation result entities from the legacy single-cell workflow.",
+    "scale": "cellular",
+    "type": "notebook",
+    "kernel": "python",
+    "input": [
+        {
+            "data_type": {
+                "artefact": "SingleNeuronSimulation",
+                "required_properties": []
+            },
+            "class": "single"
+        }
+    ],
+    "requires-python": ">=3.9,<3.13",
+    "requirements": [
+        "matplotlib>=3.7.1",
+        "numpy>=1.24.0",
+        "pandas>=2.0.0",
+        "entitysdk>=0.5.0",
+        "obi-auth>=0.3.0",
+        "obi-notebook>=0.5.4"
+    ]
+}
