@@ -128,10 +128,19 @@ def create_validation_report_pdf(
         ]
         spine_fields = [
             "Section ID", "Local Spine ID", "Global Spine ID", "Validity",
+            "Correct Type", "False Positive", "Incomplete Spine", "Falsely Extended",
+            "Merged Spine", "Split Spine",
+        ]
+        previous_spine_fields = [
+            "Section ID", "Local Spine ID", "Global Spine ID", "Validity",
             "False Positive", "Incomplete Spine", "Falsely Extended",
             "Merged Spine", "Split Spine",
         ]
         legacy_spine_fields = [
+            "Section ID", "Spine ID", "Validity", "Correct Type", "False Positive",
+            "Incomplete Spine", "Falsely Extended", "Merged Spine", "Split Spine",
+        ]
+        previous_legacy_spine_fields = [
             "Section ID", "Spine ID", "Validity", "False Positive",
             "Incomplete Spine", "Falsely Extended", "Merged Spine",
             "Split Spine",
@@ -140,9 +149,14 @@ def create_validation_report_pdf(
             raise ValueError(f"Invalid section table in {validation_csv_path}")
         spine_marker_index = rows.index(spine_marker)
         spine_header = rows[spine_marker_index + 1]
-        if spine_header not in (spine_fields, legacy_spine_fields):
+        if spine_header not in (
+            spine_fields,
+            previous_spine_fields,
+            legacy_spine_fields,
+            previous_legacy_spine_fields,
+        ):
             raise ValueError(f"Invalid spine table in {validation_csv_path}")
-        explicit_identity = spine_header == spine_fields
+        explicit_identity = spine_header in (spine_fields, previous_spine_fields)
         spine_field_indices = {
             field_name: spine_header.index(field_name)
             for field_name in spine_header

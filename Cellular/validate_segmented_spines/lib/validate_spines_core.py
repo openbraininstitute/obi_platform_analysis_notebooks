@@ -106,7 +106,7 @@ def _migrate_legacy_validation_csv(validation_csv_path, morphology):
     ]
     spine_fields = [
         'Section ID', 'Local Spine ID', 'Global Spine ID', 'Validity',
-        'False Positive', 'Incomplete Spine', 'Falsely Extended',
+        'Correct Type', 'False Positive', 'Incomplete Spine', 'Falsely Extended',
         'Merged Spine', 'Split Spine',
     ]
     issue_columns = (
@@ -160,6 +160,7 @@ def _migrate_legacy_validation_csv(validation_csv_path, morphology):
                         spine_index,
                         int(spine_id),
                         validity.get(key, 'Not Set').title(),
+                        'Not Set',
                         *[
                             issue_maps[record_type].get(key, 'Not Set').title()
                             for _column, record_type in issue_columns
@@ -554,6 +555,7 @@ def validate_spines(morphology_path, mesh_path):
     updating_spine_dropdown = [False]
     current_spine_meshes_k3d = []   # K3D objects for current section's spines
     current_spine_data = []         # List of spine trimesh objects for current section
+    current_spine_global_ids = []   # Global H5 spine IDs aligned with current_spine_data
     current_spine_colors = []       # Palette colors aligned with displayed spine meshes
     previous_colored_spine_idx = [None]
     spine_colors_initialized = [False]
@@ -595,6 +597,7 @@ def validate_spines(morphology_path, mesh_path):
     # Validation results: (section_id, spine_index_in_section) -> 'valid' | 'invalid'
     validation_results = {}
     VALIDITY_NOT_SET = 'Not Set'
+    correct_type_results = {}
     false_positive_results = {}
     incomplete_spine_results = {}
     false_positive_quality_results = {}
@@ -617,10 +620,19 @@ def validate_spines(morphology_path, mesh_path):
     ]
     SPINE_CSV_FIELDS = [
         'Section ID', 'Local Spine ID', 'Global Spine ID', 'Validity',
+        'Correct Type', 'False Positive', 'Incomplete Spine', 'Falsely Extended',
+        'Merged Spine', 'Split Spine',
+    ]
+    PREVIOUS_SPINE_CSV_FIELDS = [
+        'Section ID', 'Local Spine ID', 'Global Spine ID', 'Validity',
         'False Positive', 'Incomplete Spine', 'Falsely Extended',
         'Merged Spine', 'Split Spine',
     ]
     LEGACY_SPINE_CSV_FIELDS = [
+        'Section ID', 'Spine ID', 'Validity', 'Correct Type', 'False Positive',
+        'Incomplete Spine', 'Falsely Extended', 'Merged Spine', 'Split Spine',
+    ]
+    PREVIOUS_LEGACY_SPINE_CSV_FIELDS = [
         'Section ID', 'Spine ID', 'Validity', 'False Positive',
         'Incomplete Spine', 'Falsely Extended', 'Merged Spine',
         'Split Spine',
@@ -689,6 +701,7 @@ def validate_spines(morphology_path, mesh_path):
                     'Local Spine ID': spine_idx,
                     'Global Spine ID': int(spine_id),
                     'Validity': validation_results.get(key, 'Not Set').title(),
+                    'Correct Type': correct_type_results.get(key, 'Not Set').title(),
                     'False Positive': false_positive_results.get(key, 'Not Set').title(),
                     'Incomplete Spine': incomplete_spine_results.get(key, 'Not Set').title(),
                     'Falsely Extended': false_positive_quality_results.get(key, 'Not Set').title(),
@@ -765,11 +778,12 @@ def validate_spines(morphology_path, mesh_path):
         """Read legacy or versioned validation CSV data."""
         path = Path(path)
         if not path.exists():
-            return {}, {}, {}, {}, {}, {}, {}, {}, set()
+            return {}, {}, {}, {}, {}, {}, {}, {}, {}, set()
 
         section_counts = dict(spiny_sections)
         targets = {
             'spine': {},
+            'correct_type': {},
             'false_positive': {},
             'incomplete_spine': {},
             'false_positive_quality': {},
@@ -865,7 +879,9 @@ def validate_spines(morphology_path, mesh_path):
             spine_header = rows[row_index] if row_index < len(rows) else None
             if (
                 spine_header != SPINE_CSV_FIELDS
+                and spine_header != PREVIOUS_SPINE_CSV_FIELDS
                 and spine_header != LEGACY_SPINE_CSV_FIELDS
+                and spine_header != PREVIOUS_LEGACY_SPINE_CSV_FIELDS
             ):
                 raise ValueError(f'Unexpected spine table headers in {path}')
             row_index += 1
@@ -877,7 +893,11 @@ def validate_spines(morphology_path, mesh_path):
                 field_name: spine_header.index(field_name)
                 for field_name in spine_header
             }
-            has_explicit_local_id = spine_header == SPINE_CSV_FIELDS
+            has_explicit_local_id = spine_header in (
+                SPINE_CSV_FIELDS,
+                PREVIOUS_SPINE_CSV_FIELDS,
+            )
+            has_correct_type = 'Correct Type' in spine_header
             seen_spines = set()
             field_targets = {
                 'False Positive': 'false_positive',
@@ -886,6 +906,11 @@ def validate_spines(morphology_path, mesh_path):
                 'Merged Spine': 'merged_spine',
                 'Split Spine': 'split_spine',
             }
+            if has_correct_type:
+                field_targets = {
+                    'Correct Type': 'correct_type',
+                    **field_targets,
+                }
             spine_table_end = len(rows)
             if validation_format_version == '3':
                 try:
@@ -981,6 +1006,7 @@ def validate_spines(morphology_path, mesh_path):
 
         return (
             targets['spine'],
+            targets['correct_type'],
             targets['false_positive'],
             targets['incomplete_spine'],
             targets['false_positive_quality'],
@@ -1023,6 +1049,7 @@ def validate_spines(morphology_path, mesh_path):
 
         (
             loaded_spines,
+            loaded_correct_type,
             loaded_false_positives,
             loaded_incomplete_spines,
             loaded_false_positive_quality,
@@ -1182,6 +1209,7 @@ def validate_spines(morphology_path, mesh_path):
         try:
             (
                 loaded_spines,
+                loaded_correct_type,
                 loaded_false_positives,
                 loaded_incomplete_spines,
                 loaded_false_positive_quality,
@@ -1197,6 +1225,8 @@ def validate_spines(morphology_path, mesh_path):
 
         validation_results.clear()
         validation_results.update(loaded_spines)
+        correct_type_results.clear()
+        correct_type_results.update(loaded_correct_type)
         false_positive_results.clear()
         false_positive_results.update(loaded_false_positives)
         incomplete_spine_results.clear()
@@ -1218,6 +1248,7 @@ def validate_spines(morphology_path, mesh_path):
         update_info()
         if (
             loaded_spines
+            or loaded_correct_type
             or loaded_false_positives
             or loaded_incomplete_spines
             or loaded_false_positive_quality
@@ -2021,6 +2052,7 @@ def validate_spines(morphology_path, mesh_path):
                 pass
         current_spine_meshes_k3d.clear()
         current_spine_data.clear()
+        current_spine_global_ids.clear()
         current_spine_colors.clear()
         previous_colored_spine_idx[0] = None
         spine_colors_initialized[0] = False
@@ -2080,11 +2112,14 @@ def validate_spines(morphology_path, mesh_path):
             sec_id, make_distinct_palette(len(spine_list))
         )
 
-        for spine_mesh, color in zip(spine_list, colors, strict=True):
+        for spine_idx, spine_mesh, color in zip(
+            spine_indices, spine_list, colors, strict=True
+        ):
             if spine_mesh.is_empty or len(spine_mesh.vertices) == 0:
                 continue
 
             current_spine_data.append(spine_mesh)
+            current_spine_global_ids.append(int(spine_idx))
             vertices = np.asarray(spine_mesh.vertices, dtype=np.float32)
 
             if len(spine_mesh.faces) == 0:
@@ -2196,6 +2231,7 @@ def validate_spines(morphology_path, mesh_path):
         key = (sec_id, current_spine_idx[0])
         changed = False
         for results in (
+            correct_type_results,
             false_positive_results,
             incomplete_spine_results,
             false_positive_quality_results,
@@ -2285,6 +2321,8 @@ def validate_spines(morphology_path, mesh_path):
             and 0 <= current_spine_idx[0] < len(current_spine_data)
         )
         for button in (
+            btn_correct_type_yes,
+            btn_correct_type_no,
             btn_false_positive_yes,
             btn_false_positive_no,
             btn_incomplete_spines_yes,
@@ -2304,6 +2342,7 @@ def validate_spines(morphology_path, mesh_path):
             current_spine_idx[0],
         )
         for results, yes_button, no_button in (
+            (correct_type_results, btn_correct_type_yes, btn_correct_type_no),
             (false_positive_results, btn_false_positive_yes, btn_false_positive_no),
             (incomplete_spine_results, btn_incomplete_spines_yes, btn_incomplete_spines_no),
             (
@@ -2672,7 +2711,7 @@ def validate_spines(morphology_path, mesh_path):
         refresh_section_dropdown()
         update_info()
 
-    def on_next_spine(_):
+    def on_next_spine(_, advance_section=True):
         if not current_spine_meshes_k3d:
             return
         if not spine_selected[0]:
@@ -2681,18 +2720,14 @@ def validate_spines(morphology_path, mesh_path):
             update_info()
             return
         sec_id, spine_count = spiny_sections[current_section_idx[0]]
-        if current_spine_idx[0] >= len(current_spine_meshes_k3d) - 1:
-            if section_is_fully_validated(sec_id, spine_count):
-                on_next_section(None)
-            return
         next_idx = get_first_unvalidated_spine_index(sec_id, current_spine_idx[0])
-        if next_idx is None:
-            if section_is_fully_validated(sec_id, spine_count):
-                on_next_section(None)
+        if next_idx is not None:
+            current_spine_idx[0] = next_idx
+            highlight_current_spine()
+            update_info()
             return
-        current_spine_idx[0] = next_idx
-        highlight_current_spine()
-        update_info()
+        if advance_section and section_is_fully_validated(sec_id, spine_count):
+            on_next_section(None)
 
     def on_prev_spine(_):
         n = len(current_spine_meshes_k3d)
@@ -2807,6 +2842,14 @@ def validate_spines(morphology_path, mesh_path):
             on_next_spine(None)
 
 
+    def on_correct_type_yes(_):
+        set_spine_analysis_status(correct_type_results, 'yes')
+
+
+    def on_correct_type_no(_):
+        set_spine_analysis_status(correct_type_results, 'no')
+
+
     def on_false_positive_yes(_):
         set_spine_analysis_status(false_positive_results, 'yes')
 
@@ -2866,8 +2909,8 @@ def validate_spines(morphology_path, mesh_path):
         set_spine_analysis_status(
             validation_results,
             'invalid' if has_defect else 'valid',
-            advance=True,
         )
+        on_next_spine(None)
 
 
 
@@ -2917,6 +2960,12 @@ def validate_spines(morphology_path, mesh_path):
         ),
     )
 
+    btn_correct_type_yes = widgets.Button(
+        description='Yes', button_style='warning', disabled=True
+    )
+    btn_correct_type_no = widgets.Button(
+        description='No', button_style='success', disabled=True
+    )
     btn_false_positive_yes = widgets.Button(
         description='Yes', button_style='warning', disabled=True
     )
@@ -3203,22 +3252,36 @@ def validate_spines(morphology_path, mesh_path):
 
 
     def build_spine_dropdown_options():
-        """Build dropdown options showing local and global spine IDs."""
+        """Build labels with local/global IDs, H5 type, and validity status."""
         sec_id = spiny_sections[current_section_idx[0]][0]
-        global_spine_ids = list(
-            morphology.spines.spine_indices_for_section(sec_id + 1)
-        )
         options = []
         for spine_idx in range(len(current_spine_data)):
-            status_label = validity_status((sec_id, spine_idx)).upper()
+            status_label = validity_status((sec_id, spine_idx)).title()
             global_spine_id = (
-                global_spine_ids[spine_idx]
-                if spine_idx < len(global_spine_ids)
-                else 'Unknown'
+                current_spine_global_ids[spine_idx]
+                if spine_idx < len(current_spine_global_ids)
+                else None
             )
+            if global_spine_id is None:
+                spine_type = 'Unknown'
+                global_id_label = 'Unknown'
+            else:
+                try:
+                    raw_spine_type = morphology.spines.spine_type(
+                        int(global_spine_id)
+                    )
+                    raw_spine_type = getattr(raw_spine_type, 'value', raw_spine_type)
+                    spine_type = str(raw_spine_type).strip()
+                    if spine_type.startswith('SpineType.'):
+                        spine_type = spine_type.rsplit('.', 1)[-1]
+                    spine_type = spine_type.replace('_', ' ').title() or 'Unknown'
+                except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+                    spine_type = 'Unknown'
+                global_id_label = str(global_spine_id)
             options.append(
                 (
-                    f'Spine {spine_idx} (Global ID {global_spine_id}) [{status_label}]',
+                    f'Spine {spine_idx} ({global_id_label}, {spine_type}) '
+                    f'[{status_label}]',
                     spine_idx,
                 )
             )
@@ -3308,6 +3371,8 @@ def validate_spines(morphology_path, mesh_path):
     btn_missing_subsection.on_click(on_missing_subsection)
     btn_prev_spine.on_click(on_prev_spine)
     btn_next_spine.on_click(on_next_spine)
+    btn_correct_type_yes.on_click(on_correct_type_yes)
+    btn_correct_type_no.on_click(on_correct_type_no)
     btn_false_positive_yes.on_click(on_false_positive_yes)
     btn_false_positive_no.on_click(on_false_positive_no)
     btn_incomplete_spines_yes.on_click(on_incomplete_spines_yes)
@@ -3353,6 +3418,7 @@ def validate_spines(morphology_path, mesh_path):
     group_layout = widgets.Layout(width='100%', margin='2px 0 4px 0')
 
     analysis_labels = [
+        'Correct Type',
         'False Positive',
         'Incomplete Spine',
         'Falsely Extended',
@@ -3360,6 +3426,9 @@ def validate_spines(morphology_path, mesh_path):
         'Split Spine',
     ]
     analysis_tooltips = {
+        'Correct Type': (
+            'Does the spine type identified automatically correspond to what do you know?'
+        ),
         'False Positive': (
             'The selected object is not a real spine and is likely a segmentation artifact.'
         ),
@@ -3429,6 +3498,11 @@ def validate_spines(morphology_path, mesh_path):
 
     spine_analysis_controls = widgets.VBox([
         analysis_row(
+            'Correct Type',
+            btn_correct_type_yes,
+            btn_correct_type_no,
+        ),
+        analysis_row(
             'False Positive',
             btn_false_positive_yes,
             btn_false_positive_no,
@@ -3465,6 +3539,8 @@ def validate_spines(morphology_path, mesh_path):
         btn_next_sec,
         btn_prev_spine,
         btn_next_spine,
+        btn_correct_type_yes,
+        btn_correct_type_no,
         btn_false_positive_yes,
         btn_false_positive_no,
         btn_incomplete_spines_yes,
@@ -3683,6 +3759,7 @@ def validate_spines(morphology_path, mesh_path):
         try:
             (
                 loaded_spines,
+                loaded_correct_type,
                 loaded_false_positives,
                 loaded_incomplete_spines,
                 loaded_false_positive_quality,
@@ -3693,6 +3770,7 @@ def validate_spines(morphology_path, mesh_path):
                 loaded_subsection_done,
             ) = read_validation_csv(validation_csv_path)
             validation_results.update(loaded_spines)
+            correct_type_results.update(loaded_correct_type)
             false_positive_results.update(loaded_false_positives)
             incomplete_spine_results.update(loaded_incomplete_spines)
             false_positive_quality_results.update(loaded_false_positive_quality)

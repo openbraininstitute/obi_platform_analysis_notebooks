@@ -37,17 +37,36 @@ def _load_validation_records(csv_path):
 
     expected_spine_header = [
         'Section ID', 'Local Spine ID', 'Global Spine ID', 'Validity',
+        'Correct Type', 'False Positive', 'Incomplete Spine', 'Falsely Extended',
+        'Merged Spine', 'Split Spine',
+    ]
+    previous_spine_header = [
+        'Section ID', 'Local Spine ID', 'Global Spine ID', 'Validity',
         'False Positive', 'Incomplete Spine', 'Falsely Extended',
         'Merged Spine', 'Split Spine',
     ]
     legacy_spine_header = [
+        'Section ID', 'Spine ID', 'Validity', 'Correct Type',
+        'False Positive', 'Incomplete Spine', 'Falsely Extended',
+        'Merged Spine', 'Split Spine',
+    ]
+    previous_legacy_spine_header = [
         'Section ID', 'Spine ID', 'Validity', 'False Positive',
         'Incomplete Spine', 'Falsely Extended', 'Merged Spine',
         'Split Spine',
     ]
-    if spine_header not in (expected_spine_header, legacy_spine_header):
+    if spine_header not in (
+        expected_spine_header,
+        previous_spine_header,
+        legacy_spine_header,
+        previous_legacy_spine_header,
+    ):
         raise ValueError(f'Unexpected spine table headers in {csv_path}')
-    explicit_identity = spine_header == expected_spine_header
+    explicit_identity = spine_header in (
+        expected_spine_header,
+        previous_spine_header,
+    )
+    has_correct_type = 'Correct Type' in spine_header
     spine_field_indices = {
         field_name: spine_header.index(field_name)
         for field_name in spine_header
@@ -101,6 +120,14 @@ def _load_validation_records(csv_path):
             'spine_id': global_spine_id,
             'status': row[spine_field_indices['Validity']].strip().lower(),
         })
+        if has_correct_type:
+            records.append({
+                'record_type': 'correct_type',
+                'section_id': section_id,
+                'spine_index': spine_index,
+                'spine_id': global_spine_id,
+                'status': row[spine_field_indices['Correct Type']].strip().lower(),
+            })
         for field_name, record_type in issue_columns.items():
             records.append({
                 'record_type': record_type,
