@@ -11,7 +11,7 @@
                 "artefact": "SingleNeuronSimulation",
                 "required_properties": []
             },
-            "class": "multiple"
+            "class": "single"
         }
     ],
     "requires-python": ">=3.9,<3.13",

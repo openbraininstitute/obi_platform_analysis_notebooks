@@ -11,7 +11,7 @@ This is a load-only analysis notebook for precomputed `SingleNeuronSimulation` r
 The notebook loads recorded membrane potential (`v`), sodium current (`ina`), and potassium current (`ik`) traces. It catalogs the available trace metadata, selects one matching recording location and stimulus condition, and plots the complete recording and a zoomed action potential.
 
 ## Inputs
-The notebook uses existing platform results. After authentication, `obi_notebook.get_projects` opens an interactive picker for the VLab and project containing the results. Leave `simulation_ids` empty to select one or more precomputed `SingleNeuronSimulation` entities from the selected project, or provide their IDs directly.
+The notebook uses existing platform results. After authentication, `obi_notebook.get_projects` opens an interactive picker for the VLab and project containing the results. Leave `simulation_id` empty to select one precomputed `SingleNeuronSimulation` entity from the selected project, or provide its ID directly.
 
 Each result asset must contain the expected `simulation` and `stimulus` sections.
 
@@ -24,4 +24,4 @@ The notebook exposes the analysis choices directly:
 4. inspect one action potential with a dual-axis voltage/current plot.
 
 ## Use
-Install the dependencies listed in `analysis_info.json`. Open `analysis_notebook.ipynb`, use the project picker to select the VLab and project, then provide or select the precomputed result IDs and execute the analysis cells. Authentication and asset download use the selected platform project context; no new simulation is run.
+Install the dependencies listed in `analysis_info.json`. Open `analysis_notebook.ipynb`, use the project picker to select the VLab and project, then provide or select one precomputed result ID and execute the analysis cells. Authentication and asset download use the selected platform project context; no new simulation is run.
