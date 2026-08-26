@@ -25,6 +25,28 @@ except ImportError:  # pragma: no cover - exercised only in minimal installation
     cKDTree = None
 
 
+MISSING_SPINES_MISSING = 'Missing'
+MISSING_SPINES_NO_MISSING = 'No Missing'
+MISSING_SPINES_NOT_SET = 'Not Set'
+
+
+def normalize_missing_spines_status(status):
+    """Return the canonical section missing-spines status label."""
+    normalized = '' if status is None else str(status).strip().casefold()
+    status_labels = {
+        '': MISSING_SPINES_NOT_SET,
+        'not set': MISSING_SPINES_NOT_SET,
+        'missing': MISSING_SPINES_MISSING,
+        'no missing': MISSING_SPINES_NO_MISSING,
+    }
+    try:
+        return status_labels[normalized]
+    except KeyError as exc:
+        raise ValueError(
+            f'Invalid missing-segmented-spines status: {status!r}'
+        ) from exc
+
+
 def _migrate_legacy_validation_csv(validation_csv_path, morphology):
     """Convert the legacy long-form CSV to the version-2 two-table format."""
     validation_csv_path = Path(validation_csv_path)
@@ -67,7 +89,7 @@ def _migrate_legacy_validation_csv(validation_csv_path, morphology):
         record_type = row['record_type']
         status = row['status'].strip().lower()
         if record_type == 'section':
-            section_missing[section_id] = status
+            section_missing[section_id] = normalize_missing_spines_status(status)
             continue
         spine_index = int(row['spine_index'])
         key = (section_id, spine_index)
@@ -126,7 +148,7 @@ def _migrate_legacy_validation_csv(validation_csv_path, morphology):
                     'Yes' if validated_count == count else 'No',
                     max(count - validated_count, 0),
                     *finding_counts,
-                    section_missing.get(section_id, 'Not Set').title(),
+                    normalize_missing_spines_status(section_missing.get(section_id)),
                 ])
             writer.writerow(['table', 'spine'])
             writer.writerow(spine_fields)
@@ -391,6 +413,89 @@ def validate_spines(morphology_path, mesh_path):
     # Add finite gray morphology centerlines. NaN-separated K3D lines can blank
     # the WebGL scene in K3D 2.18.1, so keep each section finite and independent.
     sections_points = geometry.get_sections_points(morphology)
+
+    SECTION_SUBSECTION_LENGTH_UM = 10.0
+
+    def build_section_subsections(points):
+        """Split an ordered section centerline into path-length subsections."""
+        points = np.asarray(points, dtype=np.float32)
+        if len(points) == 0:
+            return []
+        if len(points) == 1:
+            point = points[0].copy()
+            return [{
+                'index': 0,
+                'start_um': 0.0,
+                'end_um': 0.0,
+                'points': points.copy(),
+                'center': point,
+                'radius': 1e-6,
+            }]
+
+        segment_lengths = np.linalg.norm(np.diff(points, axis=0), axis=1)
+        cumulative_lengths = np.concatenate([
+            np.array([0.0], dtype=np.float64),
+            np.cumsum(segment_lengths, dtype=np.float64),
+        ])
+        total_length = float(cumulative_lengths[-1])
+        if total_length <= np.finfo(np.float64).eps:
+            point = points[0].copy()
+            return [{
+                'index': 0,
+                'start_um': 0.0,
+                'end_um': 0.0,
+                'points': points[:1].copy(),
+                'center': point,
+                'radius': 1e-6,
+            }]
+
+        boundaries = list(np.arange(
+            0.0,
+            total_length,
+            SECTION_SUBSECTION_LENGTH_UM,
+        ))
+        if not boundaries or boundaries[-1] != total_length:
+            boundaries.append(total_length)
+
+        def point_at_distance(distance):
+            return np.asarray([
+                np.interp(distance, cumulative_lengths, points[:, axis])
+                for axis in range(3)
+            ], dtype=np.float32)
+
+        subsections = []
+        for subsection_index, start_um in enumerate(boundaries[:-1]):
+            end_um = boundaries[subsection_index + 1]
+            interior_mask = (
+                (cumulative_lengths > start_um)
+                & (cumulative_lengths < end_um)
+            )
+            subsection_points = np.vstack([
+                point_at_distance(start_um),
+                points[interior_mask],
+                point_at_distance(end_um),
+            ]).astype(np.float32)
+            subsection_min = subsection_points.min(axis=0)
+            subsection_max = subsection_points.max(axis=0)
+            subsection_center = (subsection_min + subsection_max) * 0.5
+            subsection_radius = max(
+                float(np.linalg.norm(subsection_max - subsection_min)) * 0.6,
+                1e-6,
+            )
+            subsections.append({
+                'index': subsection_index,
+                'start_um': float(start_um),
+                'end_um': float(end_um),
+                'points': subsection_points,
+                'center': subsection_center.astype(np.float32),
+                'radius': subsection_radius,
+            })
+        return subsections
+
+    section_subsections = {
+        sec_id: build_section_subsections(points)
+        for sec_id, points in sections_points.items()
+    }
     section_lines = []
     for sec_id, points in sections_points.items():
         section_line = k3d.line(
@@ -414,6 +519,20 @@ def validate_spines(morphology_path, mesh_path):
     section_centerline_overlay.visible = False
     plot += section_centerline_overlay
 
+    # Reuse an orange mesh-style line for the currently reviewed 10 µm subsection.
+    SUBSECTION_CENTERLINE_WIDTH = 0.025
+    SUBSECTION_CENTERLINE_RADIAL_SEGMENTS = 4
+    subsection_centerline_overlay = k3d.line(
+        np.zeros((2, 3), dtype=np.float32),
+        width=SUBSECTION_CENTERLINE_WIDTH,
+        color=0xFF8C00,
+        shader='mesh',
+        radial_segments=SUBSECTION_CENTERLINE_RADIAL_SEGMENTS,
+        name='Current morphology subsection',
+    )
+    subsection_centerline_overlay.visible = False
+    plot += subsection_centerline_overlay
+
     # Compute morphology bounds for initial camera
     _, _, morph_center, morph_extent, morph_radius = geometry.compute_morphology_bounds(morphology)
 
@@ -425,6 +544,9 @@ def validate_spines(morphology_path, mesh_path):
     # List of (section_id, spine_count) for sections with spines
     spiny_sections = section_ids_with_counts
     current_section_idx = [0]       # Index into spiny_sections list
+    current_subsection_idx = [0]    # Index into the current section's subsections
+    updating_subsection_dropdown = [False]
+    subsection_missing_counts = {}  # (section_id, subsection_index) -> count
     current_spine_idx = [0]         # Index into current section's spine list
     spine_selected = [False]        # True only after an explicit spine selection
     updating_section_dropdown = [False]
@@ -452,6 +574,7 @@ def validate_spines(morphology_path, mesh_path):
     SECTION_CENTERLINE_WIDTH = 9.0
     SECTION_CENTERLINE_COLOR = 0xFF0000
     SECTION_CENTERLINE_HOT_COLOR = 0xFF1744
+    SUBSECTION_CENTERLINE_COLOR = 0xFF8C00
 
     # Bounding box lines for selected spine
     edges = [
@@ -476,7 +599,7 @@ def validate_spines(morphology_path, mesh_path):
     false_positive_quality_results = {}
     merged_spine_results = {}
     split_spine_results = {}
-    # Section-level segmented-spine review: section_id -> 'missing' | 'no missing'
+    # Section-level segmented-spine review: section_id -> canonical status label
     section_missing_results = {}
     # Validation state persistence
     VALIDATION_SCHEMA_VERSION = '2'
@@ -546,7 +669,9 @@ def validate_spines(morphology_path, mesh_path):
                 'Falsely Extended Spines': finding_counts[2],
                 'Merged Spines': finding_counts[3],
                 'Split Spines': finding_counts[4],
-                'Missing Segmented Spines': section_missing_results.get(sec_id, 'Not Set').title(),
+                'Missing Segmented Spines': normalize_missing_spines_status(
+                    section_missing_results.get(sec_id)
+                ),
             })
 
         spine_rows = []
@@ -585,7 +710,12 @@ def validate_spines(morphology_path, mesh_path):
                 writer.writerow(SECTION_CSV_FIELDS)
                 writer.writerows(
                     [
-                        [row[field] for field in SECTION_CSV_FIELDS]
+                        [
+                            normalize_missing_spines_status(row[field])
+                            if field == 'Missing Segmented Spines'
+                            else row[field]
+                            for field in SECTION_CSV_FIELDS
+                        ]
                         for row in snapshot['section_rows']
                     ]
                 )
@@ -639,11 +769,12 @@ def validate_spines(morphology_path, mesh_path):
                     record_type = row.get('record_type')
                     status = row.get('status')
                     if record_type == 'section':
-                        if row.get('spine_index', '') or status not in {'missing', 'no missing'}:
+                        section_status = normalize_missing_spines_status(status)
+                        if row.get('spine_index', ''):
                             raise ValueError(f'Invalid section record at line {line_number}')
                         if sec_id in loaded_sections:
                             raise ValueError(f'Duplicate section record at line {line_number}')
-                        loaded_sections[sec_id] = status
+                        loaded_sections[sec_id] = section_status
                     elif record_type in targets:
                         try:
                             spine_idx = int(row['spine_index'])
@@ -689,9 +820,7 @@ def validate_spines(morphology_path, mesh_path):
                     raise ValueError(f'Section summary does not match morphology at line {row_index + 1}')
                 if sec_id in loaded_sections:
                     raise ValueError(f'Duplicate section summary at line {row_index + 1}')
-                missing_status = row[9].strip().lower()
-                if missing_status not in {'missing', 'no missing', 'not set'}:
-                    raise ValueError(f'Invalid missing-spines status at line {row_index + 1}')
+                missing_status = normalize_missing_spines_status(row[9])
                 loaded_sections[sec_id] = missing_status
                 row_index += 1
             if row_index >= len(rows) or rows[row_index] != ['table', 'spine']:
@@ -1685,6 +1814,16 @@ def validate_spines(morphology_path, mesh_path):
         set_camera_on(section_center, section_radius)
 
 
+    def focus_on_subsection(sec_id, subsection_idx):
+        """Focus the camera on a path-length subsection."""
+        subsections = section_subsections.get(sec_id, [])
+        if not 0 <= subsection_idx < len(subsections):
+            hide_bbox()
+            return
+        subsection = subsections[subsection_idx]
+        set_camera_on(subsection['center'], subsection['radius'])
+
+
     # Expand each section's local query radius slightly so vertices on or just
     # beyond the morphology centerline extent are not clipped at the boundary.
     SECTION_QUERY_RADIUS_SCALE = 1.05
@@ -1755,6 +1894,27 @@ def validate_spines(morphology_path, mesh_path):
         section_centerline_overlay.visible = True
 
 
+    def clear_subsection_centerline():
+        """Hide the reusable orange subsection overlay."""
+        subsection_centerline_overlay.visible = False
+
+
+    def show_subsection_centerline(sec_id, subsection_idx, focus_camera=True):
+        """Show and optionally focus the current orange subsection overlay."""
+        subsections = section_subsections.get(sec_id, [])
+        if not 0 <= subsection_idx < len(subsections):
+            clear_subsection_centerline()
+            return
+
+        subsection = subsections[subsection_idx]
+        subsection_centerline_overlay.vertices = subsection['points']
+        subsection_centerline_overlay.color = SUBSECTION_CENTERLINE_COLOR
+        subsection_centerline_overlay.width = SUBSECTION_CENTERLINE_WIDTH
+        subsection_centerline_overlay.visible = True
+        if focus_camera:
+            focus_on_subsection(sec_id, subsection_idx)
+
+
     def clear_spine_meshes():
         """Remove all spine mesh objects from the plot."""
         for obj in current_spine_meshes_k3d:
@@ -1780,9 +1940,11 @@ def validate_spines(morphology_path, mesh_path):
         clear_section_point_cloud()
         clear_spine_meshes()
         clear_section_centerline()
+        clear_subsection_centerline()
         hide_bbox()
 
         sec_id, spine_count = spiny_sections[sec_idx]
+        current_subsection_idx[0] = 0
         current_spine_idx[0] = 0
         spine_selected[0] = False
 
@@ -1795,8 +1957,13 @@ def validate_spines(morphology_path, mesh_path):
             sec_radius = max(float(np.linalg.norm(pts_max - pts_min)) * 0.6, 1e-6)
             set_camera_on(sec_center, sec_radius)
 
-        # Draw the selected section on top of the gray base lines.
+        # Draw the selected section and its first 10 µm subsection.
         show_section_centerline(sec_id)
+        show_subsection_centerline(
+            sec_id,
+            current_subsection_idx[0],
+            focus_camera=True,
+        )
 
         update_info()
         # Yield so the branch camera is rendered before spine meshes appear.
@@ -1839,9 +2006,13 @@ def validate_spines(morphology_path, mesh_path):
         if generation != load_generation[0]:
             return
 
-        # After all meshes load, show the whole section and then load its
-        # full-resolution point cloud before spine review.
-        focus_on_section(sec_id)
+        # After all meshes load, keep the orange subsection focused and show the
+        # full-resolution point cloud for the selected section.
+        show_subsection_centerline(
+            sec_id,
+            current_subsection_idx[0],
+            focus_camera=True,
+        )
         update_section_point_cloud(sec_id)
         update_info()
 
@@ -2073,6 +2244,19 @@ def validate_spines(morphology_path, mesh_path):
             not bool(current_spine_meshes_k3d)
             or (spine_selected_now and key not in validation_results)
         )
+        btn_prev_spine.disabled = (
+            len(current_spine_meshes_k3d) <= 1
+            or not spine_selected_now
+            or current_spine_idx[0] <= 0
+        )
+        btn_next_spine.disabled = (
+            btn_next_spine.disabled
+            or len(current_spine_meshes_k3d) <= 1
+            or (
+                spine_selected_now
+                and current_spine_idx[0] >= len(current_spine_meshes_k3d) - 1
+            )
+        )
 
 
     def update_info():
@@ -2117,6 +2301,36 @@ def validate_spines(morphology_path, mesh_path):
         )
         sections_complete = validated_sections == len(spiny_sections)
         spines_complete = validated_spines == total_spines
+        current_subsections = section_subsections.get(sec_id, [])
+        subsection_count = len(current_subsections)
+        subsection_missing_total = sum(
+            subsection_missing_counts.get((sec_id, subsection['index']), 0)
+            for subsection in current_subsections
+        )
+        subsection_status = (
+            f'{current_subsection_idx[0] + 1}/{subsection_count}'
+            if subsection_count
+            else '0/0'
+        )
+        btn_prev_sec.disabled = (
+            len(spiny_sections) <= 1
+            or sec_idx <= 0
+        )
+        btn_next_sec.disabled = (
+            len(spiny_sections) <= 1
+            or sec_idx >= len(spiny_sections) - 1
+        )
+        btn_prev_subsection.disabled = (
+            subsection_count <= 1
+            or current_subsection_idx[0] <= 0
+        )
+        btn_next_subsection.disabled = (
+            subsection_count <= 1
+            or current_subsection_idx[0] >= subsection_count - 1
+        )
+        # Prevent contradictory section-level confirmation after a positive
+        # subsection-level missing-spine observation.
+        btn_no_missing_spines.disabled = subsection_missing_total > 0
 
         status_colors = {
             'valid': '#188038',
@@ -2142,6 +2356,8 @@ def validate_spines(morphology_path, mesh_path):
             f'<span style="color:{section_status_color}"><b>{"Yes" if section_complete else "No"}</b></span>'
             f' | Section Spines Validated: '
             f'<span style="color:{section_spines_color}"><b>{section_validated}/{spine_count}</b></span>'
+            f'<br>Subsection Review: <b>{subsection_status}</b>'
+            f' | Missing Spines Count: <b>{subsection_missing_total}</b>'
             '<br><b>Overall Status</b> '
             '<span title="This section summarizes the overall status of all the sections and spines. '
             'This summarizes whether all sections have been analyzed and the results '
@@ -2153,6 +2369,8 @@ def validate_spines(morphology_path, mesh_path):
             f'<span style="color:{spines_progress_color}"><b>{validated_spines}/{total_spines}</b></span>'
         )
 
+        # Keep the subsection selector synchronized with the current section.
+        refresh_subsection_dropdown()
         # Keep the spine selector synchronized with the current loaded section.
         refresh_spine_dropdown()
 
@@ -2171,7 +2389,24 @@ def validate_spines(morphology_path, mesh_path):
             )
             selected_remaining = max(selected_count - selected_validated, 0)
             selected_complete = 'yes' if selected_remaining == 0 else 'no'
-            selected_missing = section_missing_results.get(selected_sec_id, 'not set')
+            selected_missing = normalize_missing_spines_status(
+                section_missing_results.get(selected_sec_id)
+            )
+
+            def subsection_missing_total_for_section(sec_id):
+                return sum(
+                    subsection_missing_counts.get((sec_id, subsection['index']), 0)
+                    for subsection in section_subsections.get(sec_id, [])
+                )
+
+            def missing_status_display(sec_id, status):
+                if status.casefold() == 'missing':
+                    return f'{status} [{subsection_missing_total_for_section(sec_id)}]'
+                return status
+
+            selected_missing_display = missing_status_display(
+                selected_sec_id, selected_missing
+            )
 
             finding_maps = (
                 false_positive_results,
@@ -2200,7 +2435,12 @@ def validate_spines(morphology_path, mesh_path):
                 )
                 remaining = max(spine_count - section_validated, 0)
                 complete = 'yes' if remaining == 0 else 'no'
-                missing_status = section_missing_results.get(sec_id, 'not set')
+                missing_status = normalize_missing_spines_status(
+                    section_missing_results.get(sec_id)
+                )
+                missing_status_label = missing_status_display(
+                    sec_id, missing_status
+                )
                 finding_counts = finding_counts_for_section(sec_id)
                 summary_rows.append(
                     f'<tr><td>{sec_id}</td><td>{spine_count}</td>'
@@ -2209,7 +2449,7 @@ def validate_spines(morphology_path, mesh_path):
                     f'<td>{finding_counts[0]}</td><td>{finding_counts[1]}</td>'
                     f'<td>{finding_counts[2]}</td><td>{finding_counts[3]}</td>'
                     f'<td>{finding_counts[4]}</td>'
-                    f'<td class="section-{missing_status.replace(" ", "-")}">{missing_status.title()}</td></tr>'
+                    f'<td class="section-{missing_status.casefold().replace(" ", "-")}">{missing_status_label}</td></tr>'
                 )
 
             html = f'''
@@ -2256,7 +2496,7 @@ def validate_spines(morphology_path, mesh_path):
                     <td>{selected_finding_counts[2]}</td>
                     <td>{selected_finding_counts[3]}</td>
                     <td>{selected_finding_counts[4]}</td>
-                    <td class="section-{selected_missing.replace(' ', '-')}">{selected_missing.title()}</td></tr></tbody>
+                    <td class="section-{selected_missing.casefold().replace(' ', '-')}">{selected_missing_display}</td></tr></tbody>
                 </table>
                 <h4>Mesh Analysis Summary</h4>
                 <table>
@@ -2281,20 +2521,55 @@ def validate_spines(morphology_path, mesh_path):
     # ============================================================
 
     def on_next_section(_):
+        if current_section_idx[0] >= len(spiny_sections) - 1:
+            return
         idx = current_section_idx[0] + 1
-        if idx >= len(spiny_sections):
-            idx = 0
         current_section_idx[0] = idx
         section_dropdown.value = idx
         start_load_section(idx)
 
     def on_prev_section(_):
+        if current_section_idx[0] <= 0:
+            return
         idx = current_section_idx[0] - 1
-        if idx < 0:
-            idx = len(spiny_sections) - 1
         current_section_idx[0] = idx
         section_dropdown.value = idx
         start_load_section(idx)
+
+    def on_next_subsection(_):
+        """Advance to the next 10 µm subsection in the current section."""
+        sec_id = spiny_sections[current_section_idx[0]][0]
+        subsection_count = len(section_subsections.get(sec_id, []))
+        if (
+            subsection_count == 0
+            or current_subsection_idx[0] >= subsection_count - 1
+        ):
+            return
+        select_subsection(current_subsection_idx[0] + 1)
+
+    def on_prev_subsection(_):
+        """Move to the previous 10 µm subsection in the current section."""
+        sec_id = spiny_sections[current_section_idx[0]][0]
+        subsection_count = len(section_subsections.get(sec_id, []))
+        if subsection_count == 0 or current_subsection_idx[0] <= 0:
+            return
+        select_subsection(current_subsection_idx[0] - 1)
+
+    def on_missing_subsection(_):
+        """Increment the missing-spine count for the current subsection."""
+        sec_id = spiny_sections[current_section_idx[0]][0]
+        subsection_idx = current_subsection_idx[0]
+        if subsection_idx >= len(section_subsections.get(sec_id, [])):
+            return
+        key = (sec_id, subsection_idx)
+        subsection_missing_counts[key] = subsection_missing_counts.get(key, 0) + 1
+        # Keep the existing qualitative section status consistent with a
+        # positive subsection-level missing-spine observation.
+        section_missing_results[sec_id] = MISSING_SPINES_MISSING
+        schedule_validation_save()
+        refresh_subsection_dropdown()
+        refresh_section_dropdown()
+        update_info()
 
     def on_next_spine(_):
         if not current_spine_meshes_k3d:
@@ -2305,6 +2580,10 @@ def validate_spines(morphology_path, mesh_path):
             update_info()
             return
         sec_id, spine_count = spiny_sections[current_section_idx[0]]
+        if current_spine_idx[0] >= len(current_spine_meshes_k3d) - 1:
+            if section_is_fully_validated(sec_id, spine_count):
+                on_next_section(None)
+            return
         next_idx = get_first_unvalidated_spine_index(sec_id, current_spine_idx[0])
         if next_idx is None:
             if section_is_fully_validated(sec_id, spine_count):
@@ -2320,8 +2599,10 @@ def validate_spines(morphology_path, mesh_path):
             return
         if not spine_selected[0]:
             current_spine_idx[0] = 0
+        elif current_spine_idx[0] <= 0:
+            return
         else:
-            current_spine_idx[0] = (current_spine_idx[0] - 1) % n
+            current_spine_idx[0] -= 1
         highlight_current_spine()
         update_info()
 
@@ -2347,24 +2628,29 @@ def validate_spines(morphology_path, mesh_path):
     background_is_black = [False]
 
     def on_toggle_background(_):
-        """Switch the K3D plot background between white and black."""
+        """Switch the K3D plot background with minimal trait updates."""
         background_is_black[0] = not background_is_black[0]
         centerline_color = (
             SECTION_CENTERLINE_HOT_COLOR
             if background_is_black[0]
             else SECTION_CENTERLINE_COLOR
         )
-        base_line_color = 0xA0A0A0 if background_is_black[0] else 0x888888
-        for section_line in section_lines:
-            section_line.color = base_line_color
+
+        # Keep the base morphology lines at their existing gray. Recoloring
+        # every section line here caused one K3D update per section and delayed
+        # the active subsection refresh on large morphologies.
+        plot.background_color = (
+            0x000000 if background_is_black[0] else 0xFFFFFF
+        )
         if section_centerline_k3d[0].visible:
             section_centerline_k3d[0].color = centerline_color
-        if background_is_black[0]:
-            plot.background_color = 0x000000
-            btn_toggle_background.description = 'White Background'
-        else:
-            plot.background_color = 0xFFFFFF
-            btn_toggle_background.description = 'Black Background'
+        if subsection_centerline_overlay.visible:
+            subsection_centerline_overlay.color = SUBSECTION_CENTERLINE_COLOR
+
+        btn_toggle_background.description = (
+            'White Background' if background_is_black[0]
+            else 'Black Background'
+        )
 
 
     # ============================================================
@@ -2379,10 +2665,17 @@ def validate_spines(morphology_path, mesh_path):
         focus_first_spine()
 
     def on_missing_segmented_spines(_):
-        set_section_missing_status('missing')
+        set_section_missing_status(MISSING_SPINES_MISSING)
 
     def on_no_missing_segmented_spines(_):
-        set_section_missing_status('no missing')
+        sec_id = spiny_sections[current_section_idx[0]][0]
+        subsection_missing_total = sum(
+            subsection_missing_counts.get((sec_id, subsection['index']), 0)
+            for subsection in section_subsections.get(sec_id, [])
+        )
+        if subsection_missing_total > 0:
+            return
+        set_section_missing_status(MISSING_SPINES_NO_MISSING)
 
 
     # ============================================================
@@ -2554,6 +2847,34 @@ def validate_spines(morphology_path, mesh_path):
             max_width=navigation_button_width,
         ),
     )
+    btn_prev_subsection = widgets.Button(
+        description='Prev Subsection',
+        icon='arrow-left',
+        layout=widgets.Layout(
+            width=navigation_button_width,
+            min_width=navigation_button_width,
+            max_width=navigation_button_width,
+        ),
+    )
+    btn_next_subsection = widgets.Button(
+        description='Next Subsection',
+        icon='arrow-right',
+        layout=widgets.Layout(
+            width=navigation_button_width,
+            min_width=navigation_button_width,
+            max_width=navigation_button_width,
+        ),
+    )
+    btn_missing_subsection = widgets.Button(
+        description='Missing Spine (+1)',
+        button_style='danger',
+        icon='warning',
+        layout=widgets.Layout(
+            width=navigation_button_width,
+            min_width=navigation_button_width,
+            max_width=navigation_button_width,
+        ),
+    )
 
     btn_xy = widgets.Button(description='XY', layout=widgets.Layout(width='90px'))
     btn_negative_xy = widgets.Button(description='-XY', layout=widgets.Layout(width='90px'))
@@ -2695,6 +3016,46 @@ def validate_spines(morphology_path, mesh_path):
         layout=widgets.Layout(width='320px')
     )
 
+    def build_subsection_dropdown_options():
+        """Build labels for the current section's 10 µm subsections."""
+        sec_id = spiny_sections[current_section_idx[0]][0]
+        options = []
+        for subsection in section_subsections.get(sec_id, []):
+            subsection_idx = subsection['index']
+            missing_count = subsection_missing_counts.get(
+                (sec_id, subsection_idx),
+                0,
+            )
+            label = (
+                f"Subsection {subsection_idx + 1} "
+                f"({subsection['start_um']:.0f}-{subsection['end_um']:.0f} µm) "
+                f"[Missing: {missing_count}]"
+            )
+            options.append((label, subsection_idx))
+        return options
+
+    subsection_dropdown = widgets.Dropdown(
+        options=build_subsection_dropdown_options(),
+        value=0 if section_subsections.get(spiny_sections[0][0]) else None,
+        description='',
+        style={'description_width': 'initial'},
+        layout=widgets.Layout(width='320px'),
+    )
+
+    def refresh_subsection_dropdown():
+        """Refresh subsection labels without triggering a new selection."""
+        options = build_subsection_dropdown_options()
+        selected_idx = current_subsection_idx[0]
+        valid_indices = [value for _, value in options]
+        updating_subsection_dropdown[0] = True
+        try:
+            subsection_dropdown.options = options
+            subsection_dropdown.value = (
+                selected_idx if selected_idx in valid_indices else None
+            )
+        finally:
+            updating_subsection_dropdown[0] = False
+
 
     def refresh_section_dropdown():
         """Refresh labels without triggering a section reload."""
@@ -2768,6 +3129,29 @@ def validate_spines(morphology_path, mesh_path):
             update_info()
 
 
+    def select_subsection(subsection_idx, focus_camera=True):
+        """Select, highlight, and focus one subsection in the current section."""
+        sec_id = spiny_sections[current_section_idx[0]][0]
+        if not 0 <= subsection_idx < len(section_subsections.get(sec_id, [])):
+            return
+        current_subsection_idx[0] = subsection_idx
+        spine_selected[0] = False
+        hide_bbox()
+        update_spine_colors()
+        update_spine_analysis_button_state()
+        show_subsection_centerline(sec_id, subsection_idx, focus_camera=focus_camera)
+        update_info()
+
+
+    def on_subsection_dropdown_change(change):
+        """Handle selection of a subsection from the dropdown."""
+        if change['name'] != 'value' or updating_subsection_dropdown[0]:
+            return
+        subsection_idx = change['new']
+        if subsection_idx is not None:
+            select_subsection(subsection_idx)
+
+
     def on_section_dropdown_change(change):
         """Handle section dropdown selection."""
         if change['name'] != 'value' or updating_section_dropdown[0]:
@@ -2778,12 +3162,16 @@ def validate_spines(morphology_path, mesh_path):
             start_load_section(idx)
 
 
+    subsection_dropdown.observe(on_subsection_dropdown_change, names='value')
     section_dropdown.observe(on_section_dropdown_change, names='value')
     spine_dropdown.observe(on_spine_dropdown_change, names='value')
 
     # Connect callbacks
     btn_prev_sec.on_click(on_prev_section)
     btn_next_sec.on_click(on_next_section)
+    btn_prev_subsection.on_click(on_prev_subsection)
+    btn_next_subsection.on_click(on_next_subsection)
+    btn_missing_subsection.on_click(on_missing_subsection)
     btn_prev_spine.on_click(on_prev_spine)
     btn_next_spine.on_click(on_next_spine)
     btn_false_positive_yes.on_click(on_false_positive_yes)
@@ -2958,6 +3346,9 @@ def validate_spines(morphology_path, mesh_path):
         btn_generate_report,
         btn_missing_spines,
         btn_no_missing_spines,
+        btn_prev_subsection,
+        btn_next_subsection,
+        btn_missing_subsection,
         btn_xy,
         btn_negative_xy,
         btn_xz,
@@ -3014,6 +3405,17 @@ def validate_spines(morphology_path, mesh_path):
     section_selection = widgets.HBox(
         [section_dropdown, section_nav], layout=row_layout
     )
+    subsection_nav = widgets.VBox(
+        [
+            subsection_dropdown,
+            widgets.HBox(
+                [btn_prev_subsection, btn_next_subsection],
+                layout=row_layout,
+            ),
+            widgets.HBox([btn_missing_subsection], layout=row_layout),
+        ],
+        layout=widgets.Layout(width='100%', align_items='flex-start'),
+    )
     spine_validation = widgets.VBox(
         [spine_nav, spine_analysis_controls],
         layout=widgets.Layout(width='100%'),
@@ -3026,6 +3428,13 @@ def validate_spines(morphology_path, mesh_path):
             'style="cursor:help; color:#5f6368;">&#9432;</span>'
         )),
         section_selection,
+        widgets.HTML(value=(
+            '<b>Validate Missing Spines by 10 µm Subsection</b> '
+            '<span title="Review the current subsection, click Missing Spine (+1) '
+            'once for each missing spine, and use Next Subsection to continue." '
+            'style="cursor:help; color:#5f6368;">&#9432;</span>'
+        )),
+        subsection_nav,
         widgets.HTML(value=(
             '<b>Validate Missing Spines</b> '
             '<span title="You have to visualize the section geometry and analyze it '
