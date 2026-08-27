@@ -6,6 +6,7 @@ import re
 import matplotlib.font_manager as font_manager
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.ticker import MaxNLocator
 import pandas as pd
 from PIL import Image as PILImage
 
@@ -477,6 +478,7 @@ def generate_report(
     error_ax.set_xlabel('Section', labelpad=12, color=muted_ink)
     error_ax.set_ylabel('Number of error findings', labelpad=12, color=muted_ink)
     error_ax.set_xticks(x, [str(section_id) for section_id in section_ids])
+    error_ax.yaxis.set_major_locator(MaxNLocator(integer=True))
     error_ax.tick_params(axis='x', rotation=45, colors=muted_ink, length=0, pad=7)
     error_ax.tick_params(axis='y', colors=muted_ink, length=0)
     error_ax.set_axisbelow(True)

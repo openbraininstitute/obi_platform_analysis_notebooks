@@ -29,6 +29,10 @@ ANALYSIS_FIELDS = [
 ISSUE_FIELDS = [key for key, _ in ANALYSIS_FIELDS if key != 'correct_type']
 VALID_STRUCTURE_FIELD = ('valid_structure', 'Invalid Structure')
 ALL_ANSWER_KEYS = [key for key, _ in ANALYSIS_FIELDS] + [VALID_STRUCTURE_FIELD[0]]
+# Invalid Structure is informational and must not determine spine validity.
+VALIDITY_FIELDS = [
+    key for key in ALL_ANSWER_KEYS if key != VALID_STRUCTURE_FIELD[0]
+]
 
 SPINE_TYPES = ['thin', 'stubby', 'mushroom', 'branched', 'filopodia']
 
@@ -141,8 +145,9 @@ def _normalize_validity(value):
 
 
 def _serialize_answer(value):
+    """Serialize a binary answer; unset answers are persisted as No."""
     normalized = _normalize_answer(value)
-    return normalized.title() if normalized is not None else 'Not Set'
+    return normalized.title() if normalized is not None else 'No'
 
 
 def _serialize_validity(value):
@@ -151,13 +156,25 @@ def _serialize_validity(value):
 
 
 def derive_spine_validity(spine):
-    """Derive the explicit legacy validity written by Spine done/next."""
+    """Derive validity from error answers, excluding Invalid Structure.
+
+    Any explicit Yes in a validity-driving field makes the spine invalid.
+    A spine is valid only after every validity-driving field has an explicit
+    No; Invalid Structure is intentionally excluded from both checks.
+    """
     answers = spine.get('answers', {})
-    if any(answers.get(key) == 'yes' for key in ISSUE_FIELDS):
+    if any(answers.get(key) == 'yes' for key in VALIDITY_FIELDS):
         return 'invalid'
-    if all(answers.get(key) == 'no' for key in ISSUE_FIELDS):
-        return 'valid'
-    return None
+    if any(answers.get(key) not in {'yes', 'no'} for key in VALIDITY_FIELDS):
+        return None
+    return 'valid'
+
+
+def effective_spine_validity(spine):
+    """Return the persisted validity of an explicitly completed spine."""
+    if not spine.get('checked', False):
+        return None
+    return _normalize_validity(spine.get('validity'))
 
 
 # ============================================================
@@ -432,18 +449,7 @@ class DesignState:
         return self.section['spines'][self.spine_index]
 
     def spine_validity(self, spine):
-        explicit_validity = _normalize_validity(spine.get('validity'))
-        if explicit_validity is not None:
-            return explicit_validity
-        answers = spine['answers']
-        if any(value is None for value in answers.values()):
-            return 'unset'
-        invalid = (
-            answers['correct_type'] == 'no'
-            or answers['valid_structure'] == 'no'
-            or any(answers[key] == 'yes' for key in ISSUE_FIELDS)
-        )
-        return 'invalid' if invalid else 'valid'
+        return effective_spine_validity(spine) or 'unset'
 
     def spine_flag_count(self, spine):
         return sum(1 for key in ISSUE_FIELDS if spine['answers'][key] == 'yes')
@@ -480,7 +486,7 @@ def section_summary_row(state, section):
     """Build one legacy section-summary row from the current in-memory state."""
     spines = section.get('spines', [])
     validated_count = sum(
-        _normalize_validity(spine.get('validity')) is not None
+        effective_spine_validity(spine) is not None
         for spine in spines
     )
     finding_fields = (
@@ -528,7 +534,9 @@ def snapshot_validation_state(state):
                 'Section ID': section_id,
                 'Local Spine ID': int(spine.get('index', local_index)),
                 'Global Spine ID': int(spine['global_id']),
-                'Validity': _serialize_validity(spine.get('validity')),
+                'Validity': _serialize_validity(
+                    effective_spine_validity(spine)
+                ),
                 'Incorrect Type': _serialize_answer(
                     spine.get('answers', {}).get('correct_type')
                 ),
@@ -566,7 +574,7 @@ def snapshot_validation_state(state):
 
 
 def write_validation_csv(path, snapshot):
-    """Atomically write section, spine, and subsection validation tables."""
+    """Atomically and durably write all section, spine, and subsection tables."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = None
@@ -594,7 +602,15 @@ def write_validation_csv(path, snapshot):
                 [[row[field] for field in SUBSECTION_CSV_FIELDS]
                  for row in snapshot['subsection_rows']]
             )
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(temporary_path, path)
+        directory_flags = os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0)
+        directory_fd = os.open(str(path.parent), directory_flags)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         if temporary_path is not None and temporary_path.exists():
             temporary_path.unlink()
@@ -875,8 +891,11 @@ def restore_validation_state(state, path):
             if record is None:
                 continue
             spine['answers'].update(record['answers'])
+            # Answer columns are always binary, but Validity is only assigned
+            # by the explicit Spine done action. Do not infer completion from
+            # a row whose persisted validity is Not Set.
             spine['validity'] = record['validity']
-            spine['checked'] = record['validity'] is not None
+            spine['checked'] = spine['validity'] is not None
         for subsection in section.get('subsections', []):
             record = loaded['subsections'].get((section_id, int(subsection['index'])))
             if record is None:

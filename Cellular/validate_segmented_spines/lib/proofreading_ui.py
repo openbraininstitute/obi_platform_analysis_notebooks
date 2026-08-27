@@ -34,6 +34,7 @@ try:  # Package import, e.g. ``from . import proofreading_ui``.
         DesignState,
         ISSUE_FIELDS,
         SECTION_CSV_FIELDS,
+        VALIDITY_FIELDS,
         VALID_STRUCTURE_FIELD,
         derive_spine_validity,
         save_validation_state,
@@ -46,6 +47,7 @@ except ImportError:  # Notebook import after adding ``lib`` to sys.path.
         DesignState,
         ISSUE_FIELDS,
         SECTION_CSV_FIELDS,
+        VALIDITY_FIELDS,
         VALID_STRUCTURE_FIELD,
         derive_spine_validity,
         save_validation_state,
@@ -537,6 +539,7 @@ class SpineValidationDesign:
         self._silent = False
         self._analysis_visible = False
         self._section_points = {}
+        self._section_radii = {}
         self._section_centerlines = {}
         self._section_terminal_markers = None
         self._section_spine_objects = []
@@ -549,10 +552,13 @@ class SpineValidationDesign:
         self._spine_selected = False
         self._section_load_task = None
         self._section_load_generation = 0
+        self._section_geometry_visible = True
         self._screenshot_request_path = None
         self._screenshot_request_token = 0
         self._screenshot_save_task = None
         self._report_task = None
+        self._persistence_dirty = False
+        self._last_persistence_error = None
         self._build_widgets()
         self._initialize_viewport()
         self._wire_events()
@@ -584,6 +590,7 @@ class SpineValidationDesign:
         # Section column
         self.section_header_html = widgets.HTML()
         self.section_dropdown = widgets.Dropdown(layout=widgets.Layout(width='calc(100% - 80px)', height='27px', margin='0 4px 0 0'))
+        self.section_dropdown.add_class('sv-section-dropdown')
         self.btn_prev_section = widgets.Button(description='', layout=widgets.Layout(width='34px', height='27px'))
         self.btn_next_section = widgets.Button(description='', layout=widgets.Layout(width='34px', height='27px'))
         self.btn_prev_section.add_class('sv-btn')
@@ -592,6 +599,11 @@ class SpineValidationDesign:
         self.btn_next_section.add_class('sv-btn')
         self.btn_next_section.add_class('sv-btn-icon')
         self.btn_next_section.add_class('sv-nav-next')
+        self.btn_show_section_geometry = widgets.Button(
+            description='Hide Section Geometry',
+            layout=widgets.Layout(width='100%'),
+        )
+        self.btn_show_section_geometry.add_class('sv-btn')
 
         self.subsection_header_html = widgets.HTML()
         self.subsection_dropdown = widgets.Dropdown(layout=widgets.Layout(width='calc(100% - 80px)', height='27px', margin='0 4px 0 0'))
@@ -617,6 +629,7 @@ class SpineValidationDesign:
         # Spine review column
         self.spine_review_header = widgets.HTML()
         self.spine_dropdown = widgets.Dropdown(layout=widgets.Layout(width='calc(100% - 80px)', height='27px', margin='0 4px 0 0'))
+        self.spine_dropdown.add_class('sv-spine-dropdown')
         self.btn_prev_spine = widgets.Button(description='', layout=widgets.Layout(width='34px', height='27px'))
         self.btn_next_spine = widgets.Button(description='', layout=widgets.Layout(width='34px', height='27px'))
         self.btn_prev_spine.add_class('sv-btn')
@@ -718,6 +731,7 @@ class SpineValidationDesign:
             height=560,
         )
         self._section_points = {}
+        self._section_radii = {}
         self._section_centerlines = {}
         self._section_terminal_markers = None
         self._section_spine_objects = []
@@ -745,6 +759,15 @@ class SpineValidationDesign:
             for section_id, points in raw_sections.items()
             if np.asarray(points).ndim == 2 and np.asarray(points).shape[1] == 3
         }
+        self._section_radii = {}
+        for section in morphology.morphology.sections:
+            section_data = np.asarray(section.points, dtype=np.float32)
+            if (
+                section_data.ndim == 2
+                and section_data.shape[1] >= 4
+                and section_data.shape[0] >= 2
+            ):
+                self._section_radii[int(section.id)] = section_data[:, 3]
         for section_id, points in self._section_points.items():
             if len(points) == 0:
                 continue
@@ -758,12 +781,18 @@ class SpineValidationDesign:
             self.plot += line
             self._section_centerlines[section_id] = line
 
-        selected_overlay = k3d.line(
-            np.zeros((2, 3), dtype=np.float32),
-            width=9.0,
+        dummy_vertices, dummy_faces = self._build_variable_radius_polyline_mesh(
+            np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float32),
+            np.array([0.01, 0.01], dtype=np.float32),
+        )
+        selected_overlay = k3d.mesh(
+            dummy_vertices,
+            dummy_faces.reshape(-1),
             color=0xFF0000,
-            shader='simple',
-            name='Selected morphology section',
+            opacity=0.3,
+            flat_shading=True,
+            wireframe=False,
+            name='Selected morphology section with varying radius',
         )
         selected_overlay.visible = False
         self.plot += selected_overlay
@@ -927,15 +956,32 @@ class SpineValidationDesign:
 
         if self._selected_section_overlay is None:
             return
-        if points is None or len(points) == 0:
+        radii = self._section_radii.get(section_id)
+        if points is None or radii is None or len(points) == 0:
             self._selected_section_overlay.visible = False
             return
-        self._selected_section_overlay.vertices = points
+        tube_vertices, tube_faces = self._build_variable_radius_polyline_mesh(
+            points,
+            radii,
+        )
+        if len(tube_vertices) == 0 or len(tube_faces) == 0:
+            self._selected_section_overlay.visible = False
+            return
+        self._selected_section_overlay.vertices = tube_vertices
+        self._selected_section_overlay.indices = tube_faces.reshape(-1)
         self._selected_section_overlay.color = (
             0x14171C if not self.state.white_background else 0xFF0000
         )
-        self._selected_section_overlay.visible = True
+        self._selected_section_overlay.visible = self._section_geometry_visible
         self._focus_section(section_id)
+
+    def _toggle_section_geometry(self, _button):
+        """Show or hide the focused section's variable-radius tube."""
+        if self._selected_section_overlay is None:
+            return
+        self._section_geometry_visible = not self._section_geometry_visible
+        self._selected_section_overlay.visible = self._section_geometry_visible
+        self.refresh()
 
     def _set_camera_oriented(self, center, radius, view_direction):
         """Focus the camera along a stable axis derived from section geometry."""
@@ -1225,12 +1271,26 @@ class SpineValidationDesign:
         position = center + view_direction * distance
         self.plot.camera = position.tolist() + center.tolist() + camera_up
 
+    def _ensure_spine_analysis_defaults(self, spine=None):
+        """Default unset validity answers to No when a spine is selected."""
+        spine = self.state.spine if spine is None else spine
+        changed = False
+        answers = spine.setdefault('answers', {})
+        for key in VALIDITY_FIELDS:
+            if answers.get(key) not in {'yes', 'no'}:
+                answers[key] = 'no'
+                changed = True
+        if changed:
+            self._save_state()
+        return changed
+
     def _focus_first_spine(self):
         """Match the legacy final-subsection action by focusing spine zero."""
         for spine_index, vertices in enumerate(self._section_spine_vertices_by_index):
             if vertices is not None:
                 self.state.spine_index = spine_index
                 self._spine_selected = True
+                self._ensure_spine_analysis_defaults()
                 self._focus_spine(spine_index)
                 self.refresh()
                 return
@@ -1257,6 +1317,114 @@ class SpineValidationDesign:
     def _spine_color(_index):
         """Return the default gray color for an unselected full spine."""
         return SPINE_UNSELECTED_COLOR
+
+    @staticmethod
+    def _build_variable_radius_polyline_mesh(points, radii, radial_segments=8):
+        """Build a triangle tube around a centerline with per-point radii."""
+        points = np.asarray(points, dtype=np.float32)
+        radii = np.asarray(radii, dtype=np.float32).reshape(-1)
+        empty_vertices = np.empty((0, 3), dtype=np.float32)
+        empty_faces = np.empty((0, 3), dtype=np.uint32)
+        if (
+            points.ndim != 2
+            or points.shape[1] != 3
+            or len(points) != len(radii)
+            or len(points) < 2
+        ):
+            return empty_vertices, empty_faces
+
+        valid = np.all(np.isfinite(points), axis=1) & np.isfinite(radii)
+        points = points[valid]
+        radii = radii[valid]
+        if len(points) < 2:
+            return empty_vertices, empty_faces
+        radii = np.maximum(radii, np.finfo(np.float32).eps)
+        radial_segments = max(int(radial_segments), 3)
+
+        tangents = np.zeros_like(points)
+        for point_index in range(len(points)):
+            if point_index == 0:
+                tangent = points[1] - points[0]
+            elif point_index == len(points) - 1:
+                tangent = points[-1] - points[-2]
+            else:
+                tangent = points[point_index + 1] - points[point_index - 1]
+            tangent_norm = float(np.linalg.norm(tangent))
+            if tangent_norm <= np.finfo(np.float32).eps:
+                for candidate_index in range(1, len(points)):
+                    candidate = points[candidate_index] - points[point_index]
+                    candidate_norm = float(np.linalg.norm(candidate))
+                    if candidate_norm > np.finfo(np.float32).eps:
+                        tangent = candidate
+                        tangent_norm = candidate_norm
+                        break
+            if tangent_norm <= np.finfo(np.float32).eps:
+                tangent = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+                tangent_norm = 1.0
+            tangents[point_index] = tangent / tangent_norm
+
+        def initial_normal(tangent):
+            reference = np.eye(3, dtype=np.float32)[
+                int(np.argmin(np.abs(tangent)))
+            ]
+            normal = np.cross(tangent, reference)
+            normal_norm = float(np.linalg.norm(normal))
+            if normal_norm <= np.finfo(np.float32).eps:
+                reference = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+                normal = np.cross(tangent, reference)
+                normal_norm = float(np.linalg.norm(normal))
+            return normal / max(normal_norm, np.finfo(np.float32).eps)
+
+        normals = np.zeros_like(points)
+        binormals = np.zeros_like(points)
+        normals[0] = initial_normal(tangents[0])
+        binormals[0] = np.cross(tangents[0], normals[0])
+        for point_index in range(1, len(points)):
+            normal = normals[point_index - 1]
+            normal = normal - np.dot(normal, tangents[point_index]) * tangents[point_index]
+            normal_norm = float(np.linalg.norm(normal))
+            if normal_norm <= np.finfo(np.float32).eps:
+                normal = initial_normal(tangents[point_index])
+            else:
+                normal /= normal_norm
+            normals[point_index] = normal
+            binormals[point_index] = np.cross(tangents[point_index], normal)
+
+        angles = np.linspace(
+            0.0, 2.0 * np.pi, radial_segments, endpoint=False, dtype=np.float32
+        )
+        circle_cos = np.cos(angles)
+        circle_sin = np.sin(angles)
+        rings = np.stack([
+            points[:, None, :]
+            + radii[:, None, None] * (
+                circle_cos[None, :, None] * normals[:, None, :]
+                + circle_sin[None, :, None] * binormals[:, None, :]
+            )
+        ], axis=0)[0]
+        vertices = rings.reshape(-1, 3)
+
+        faces = []
+        for point_index in range(len(points) - 1):
+            ring_start = point_index * radial_segments
+            next_ring_start = (point_index + 1) * radial_segments
+            for radial_index in range(radial_segments):
+                next_radial_index = (radial_index + 1) % radial_segments
+                first = ring_start + radial_index
+                second = ring_start + next_radial_index
+                third = next_ring_start + next_radial_index
+                fourth = next_ring_start + radial_index
+                faces.extend(((first, second, third), (first, third, fourth)))
+
+        start_center = len(vertices)
+        end_center = start_center + 1
+        vertices = np.vstack((vertices, points[0], points[-1])).astype(np.float32)
+        for radial_index in range(radial_segments):
+            next_radial_index = (radial_index + 1) % radial_segments
+            faces.append((start_center, next_radial_index, radial_index))
+            end_ring = (len(points) - 1) * radial_segments
+            faces.append((end_center, end_ring + radial_index, end_ring + next_radial_index))
+        return vertices, np.asarray(faces, dtype=np.uint32)
 
     @staticmethod
     def _spine_mesh_object(spine_mesh, color):
@@ -1695,6 +1863,7 @@ class SpineValidationDesign:
         self.section_dropdown.observe(self._on_section_dropdown, names='value')
         self.btn_prev_section.on_click(lambda _b: self._step_section(-1))
         self.btn_next_section.on_click(lambda _b: self._step_section(1))
+        self.btn_show_section_geometry.on_click(self._toggle_section_geometry)
 
         self.subsection_dropdown.observe(self._on_subsection_dropdown, names='value')
         self.btn_prev_subsection.on_click(lambda _b: self._step_subsection(-1))
@@ -1718,7 +1887,7 @@ class SpineValidationDesign:
         self.btn_toggle_analysis.on_click(self._on_toggle_analysis)
         self.plot.observe(self._on_screenshot_ready, names='screenshot')
         self.btn_generate_report.on_click(self._on_generate_report)
-        self.btn_register.on_click(lambda _b: self._set_status('Assessment registered.'))
+        self.btn_register.on_click(self._on_register)
 
         for code, (_cell, btn) in self.proj_cells.items():
             btn.on_click(lambda _b, code=code: self._on_projection(code))
@@ -1729,6 +1898,7 @@ class SpineValidationDesign:
             self.section_header_html,
             widgets.HBox([self.section_dropdown, self.btn_prev_section, self.btn_next_section],
                          layout=widgets.Layout(width='100%', gap='4px', align_items='center')),
+            self.btn_show_section_geometry,
             widgets.HTML(value='<div class="sv-divider"></div>'),
             self.subsection_header_html,
             widgets.HBox([self.subsection_dropdown, self.btn_prev_subsection, self.btn_next_subsection],
@@ -1798,6 +1968,9 @@ class SpineValidationDesign:
     # -- event handlers -----------------------------------------------------
 
     def _select_section(self, section_index):
+        if not self._save_state_required():
+            self.refresh()
+            return
         self.state.section_index = max(
             0, min(section_index, len(self.state.sections) - 1)
         )
@@ -1815,6 +1988,9 @@ class SpineValidationDesign:
         self._select_section(change['new'])
 
     def _select_subsection(self, subsection_index):
+        if not self._save_state_required():
+            self.refresh()
+            return
         subsections = self.state.section['subsections']
         self.state.subsection_index = max(
             0, min(subsection_index, len(subsections) - 1)
@@ -1839,7 +2015,9 @@ class SpineValidationDesign:
         subsection['missing_count'] += 1
         self.state.section['missing_status'] = 'Missing'
         self._set_status('Missing spine flagged.')
-        self._save_state()
+        if not self._save_state_required():
+            self.refresh()
+            return
         self.refresh()
         self._show_selected_subsection(self.state.subsection_index, focus_camera=False)
 
@@ -1856,7 +2034,9 @@ class SpineValidationDesign:
         )
         if 0 <= current_index < len(current_subsections):
             current_subsections[current_index]['done'] = True
-        self._save_state()
+        if not self._save_state_required():
+            self.refresh()
+            return
 
         # Equivalent to refresh_section_dropdown() in the reference UI: make
         # the completed subsection and section missing status visible before
@@ -1885,10 +2065,14 @@ class SpineValidationDesign:
     def _step_spine(self, delta):
         if not self._spine_review_is_enabled():
             return
+        if not self._save_state_required():
+            self.refresh()
+            return
         spines = self.state.section['spines']
         self._clear_spine_geometry()
         self.state.spine_index = max(0, min(self.state.spine_index + delta, len(spines) - 1))
         self._spine_selected = True
+        self._ensure_spine_analysis_defaults()
         self.refresh()
         self._focus_spine(self.state.spine_index)
 
@@ -1900,9 +2084,13 @@ class SpineValidationDesign:
             or not self._spine_review_is_enabled()
         ):
             return
+        if not self._save_state_required():
+            self.refresh()
+            return
         self._clear_spine_geometry()
         self.state.spine_index = change['new']
         self._spine_selected = True
+        self._ensure_spine_analysis_defaults()
         self.refresh()
         self._focus_spine(self.state.spine_index)
 
@@ -1911,8 +2099,11 @@ class SpineValidationDesign:
             return
         spine = self.state.spine
         spine['answers'][key] = value
-        spine['checked'] = all(spine['answers'][k] is not None for k in ALL_ANSWER_KEYS)
-        self._save_state()
+        spine['validity'] = None
+        spine['checked'] = False
+        if not self._save_state_required():
+            self.refresh()
+            return
         self.refresh()
 
     def _on_show_structure(self, _button):
@@ -1950,17 +2141,24 @@ class SpineValidationDesign:
         current_index = self.state.spine_index
         current_spine = spines[current_index]
         self._clear_spine_geometry()
-        current_spine['validity'] = (
-            derive_spine_validity(current_spine)
-            or current_spine.get('validity')
-        )
+        derived_validity = derive_spine_validity(current_spine)
+        if derived_validity is None:
+            self._set_status(
+                'Answer every defect-analysis question before marking the spine done.'
+            )
+            self.refresh()
+            return
+        current_spine['validity'] = derived_validity
         current_spine['checked'] = True
-        self._save_state()
+        if not self._save_state_required():
+            self.refresh()
+            return
 
         next_spine_index = self._next_unchecked_spine_index(current_index)
         if next_spine_index is not None:
             self.state.spine_index = next_spine_index
             self._spine_selected = True
+            self._ensure_spine_analysis_defaults()
             self._set_status('Spine marked done.')
             self.refresh()
             self._focus_spine(next_spine_index)
@@ -2015,12 +2213,37 @@ class SpineValidationDesign:
         self.state.status_message = message
 
     def _save_state(self):
-        """Persist validation state immediately when persistence is enabled."""
-        try:
-            return save_validation_state(self.state)
-        except Exception as exc:
-            self._set_status(f'Could not save validation state: {exc}')
+        """Persist a complete validation snapshot and track failures."""
+        if self.state.validation_csv_path is None:
+            self._persistence_dirty = False
+            self._last_persistence_error = None
             return None
+        try:
+            path = save_validation_state(self.state)
+        except Exception as exc:
+            self._persistence_dirty = True
+            self._last_persistence_error = exc
+            self._set_status(
+                f'UNSAVED: could not write validation data '
+                f'({type(exc).__name__}: {exc})'
+            )
+            return None
+        self._persistence_dirty = path is None
+        self._last_persistence_error = None
+        return path
+
+    def _save_state_required(self):
+        """Save before continuing; block navigation when persistence fails."""
+        if self.state.validation_csv_path is None:
+            return True
+        return self._save_state() is not None
+
+    def _on_register(self, _button):
+        if not self._save_state_required():
+            self.refresh()
+            return
+        self._set_status('Assessment registered.')
+        self.refresh()
 
     async def _generate_report_worker(self):
         """Persist the assessment and create the legacy analysis PDF."""
@@ -2163,7 +2386,22 @@ class SpineValidationDesign:
     def _refresh_section_column(self, section, subsection, subsection_count):
         s = self.state
         section_id = section.get('section_id', section['index'])
+        section_option_colors = []
+        for option_index, sec in enumerate(s.sections, start=1):
+            status = str(sec.get('missing_status', 'Not Set')).strip().casefold()
+            if status.startswith('missing'):
+                color = '#c5221f'
+            elif status in {'no missing', 'no missing spines'}:
+                color = '#188038'
+            else:
+                color = '#777777'
+            section_option_colors.append(
+                f'.sv-app .sv-section-dropdown select option:nth-child({option_index}) '
+                f'{{ color: {color} !important; font-weight: 600; }}'
+            )
+        section_option_css = ''.join(section_option_colors)
         self.section_header_html.value = f"""
+        <style>{section_option_css}</style>
         <div class="sv-col-header-row">
           <span class="sv-col-header">Section</span>
           <span class="sv-meta">Section {section_id}</span>
@@ -2183,6 +2421,14 @@ class SpineValidationDesign:
         self.section_dropdown.value = s.section_index
         self.btn_prev_section.disabled = s.section_index == 0
         self.btn_next_section.disabled = s.section_index == len(s.sections) - 1
+        self.btn_show_section_geometry.disabled = (
+            self._selected_section_overlay is None
+        )
+        self.btn_show_section_geometry.description = (
+            'Hide Section Geometry'
+            if self._section_geometry_visible
+            else 'Show Section Geometry'
+        )
 
         self.subsection_header_html.value = f"""
         <div class="sv-col-header-row">
@@ -2217,6 +2463,20 @@ class SpineValidationDesign:
 
     def _refresh_spine_review(self, section, spine, spine_count):
         spine_review_enabled = self._spine_review_is_enabled()
+        spine_option_colors = []
+        for option_index, sp in enumerate(section['spines'], start=1):
+            status = str(self.state.spine_validity(sp)).strip().casefold()
+            if status == 'valid':
+                color = '#188038'
+            elif status == 'invalid':
+                color = '#c5221f'
+            else:
+                color = '#777777'
+            spine_option_colors.append(
+                f'.sv-app .sv-spine-dropdown select option:nth-child({option_index}) '
+                f'{{ color: {color} !important; font-weight: 600; }}'
+            )
+        spine_option_css = ''.join(spine_option_colors)
         spine_options = [
             (
                 f"Spine {sp['index'] + 1} ({sp['global_id']}) — "
@@ -2245,9 +2505,13 @@ class SpineValidationDesign:
             and self._selected_spine_object() is not None
         )
         self.btn_show_structure.disabled = not geometry_available
-        self.btn_spine_done.disabled = not spine_review_enabled
+        self.btn_spine_done.disabled = (
+            not spine_review_enabled
+            or derive_spine_validity(spine) is None
+        )
 
         self.spine_review_header.value = f"""
+        <style>{spine_option_css}</style>
         <div class="sv-col-header-row">
           <span class="sv-col-header">Spine review</span>
           <span class="sv-meta">Spine {self.state.spine_index + 1} of {spine_count} ({spine['global_id']}) · {spine['type']}</span>
