@@ -72,6 +72,59 @@ SCALE_BAR_WORLD_UNITS_PER_DISPLAY_UNIT = 1.0
 VIEWPORT_CAMERA_FOV = 90.0
 SPINE_UNSELECTED_COLOR = 0xA0A0A0
 SPINE_SELECTED_COLOR = 0xFF0000
+SPINE_ANALYSIS_TOOLTIPS = {
+    'correct_type': (
+        'Does the spine type identified automatically correspond to what do you know?'
+    ),
+    'false_positive': (
+        'The selected object is not a real spine and is likely a segmentation artifact.'
+    ),
+    'incomplete_spine': (
+        'The spine is present, but its segmented geometry is incomplete or missing part of the spine.'
+    ),
+    'falsely_extended': (
+        'The segmented geometry extends beyond the actual spine or includes unrelated geometry.'
+    ),
+    'merged_spine': (
+        'Two or more distinct spines have been incorrectly combined into one segmented object.'
+    ),
+    'split_spine': (
+        'One actual spine has been incorrectly divided into multiple segmented objects.'
+    ),
+    'valid_structure': (
+        'Does the displayed rose head and green neck structure match the spine morphology?'
+    ),
+}
+SPINE_ANALYSIS_BUTTON_TOOLTIPS = {
+    'correct_type': (
+        'Yes — mark the automatically assigned spine type as incorrect.',
+        'No — mark the automatically assigned spine type as correct.',
+    ),
+    'false_positive': (
+        'Yes — mark the selected object as a false positive, not a real spine.',
+        'No — mark the selected object as a real spine.',
+    ),
+    'incomplete_spine': (
+        'Yes — mark the spine as incomplete or missing segmented geometry.',
+        'No — mark the spine geometry as complete.',
+    ),
+    'falsely_extended': (
+        'Yes — mark the segmented geometry as extending beyond the actual spine.',
+        'No — mark the segmented geometry as correctly bounded.',
+    ),
+    'merged_spine': (
+        'Yes — mark the object as combining two or more distinct spines.',
+        'No — mark the object as a correctly separated single spine.',
+    ),
+    'split_spine': (
+        'Yes — mark the object as splitting one spine into multiple segments.',
+        'No — mark the object as one correctly connected spine.',
+    ),
+    'valid_structure': (
+        'Yes — mark the displayed rose head and green neck structure as invalid.',
+        'No — mark the displayed rose head and green neck structure as valid.',
+    ),
+}
 OBI_LOGO_PATH = Path(__file__).resolve().parent / 'assets' / 'obi_logo.png'
 OBI_LOGO_DATA_URI = (
     'data:image/png;base64,'
@@ -683,7 +736,22 @@ class SpineValidationDesign:
         no_btn.add_class('sv-toggle')
         no_btn.add_class('sv-toggle-no')
         self.toggle_buttons[key] = (yes_btn, no_btn)
-        label_html = widgets.HTML(value=f'<span>{label}</span>', layout=widgets.Layout(flex='1 1 auto'))
+        tooltip = SPINE_ANALYSIS_TOOLTIPS.get(key)
+        button_tooltips = SPINE_ANALYSIS_BUTTON_TOOLTIPS.get(key)
+        if button_tooltips:
+            yes_btn.tooltip, no_btn.tooltip = button_tooltips
+        label_html = widgets.HTML(
+            value=(
+                f'<span>{html.escape(str(label))}</span>'
+                + (
+                    f' <span title="{html.escape(tooltip, quote=True)}" '
+                    'style="cursor:help; color:#5f6368;">&#9432;</span>'
+                    if tooltip
+                    else ''
+                )
+            ),
+            layout=widgets.Layout(flex='1 1 auto'),
+        )
         row = widgets.HBox(
             [label_html, widgets.HBox([yes_btn, no_btn], layout=widgets.Layout(gap='4px'))],
             layout=widgets.Layout(width='100%', align_items='center', margin='2px 0'),
@@ -718,6 +786,7 @@ class SpineValidationDesign:
 
         self.subsection_header_html = widgets.HTML()
         self.subsection_dropdown = widgets.Dropdown(layout=widgets.Layout(width='calc(100% - 80px)', height='27px', margin='0 4px 0 0'))
+        self.subsection_dropdown.add_class('sv-subsection-dropdown')
         self.btn_prev_subsection = widgets.Button(description='', layout=widgets.Layout(width='34px', height='27px'))
         self.btn_next_subsection = widgets.Button(description='', layout=widgets.Layout(width='34px', height='27px'))
         self.btn_prev_subsection.add_class('sv-btn')
@@ -823,6 +892,52 @@ class SpineValidationDesign:
             description='Black background', layout=widgets.Layout(width='100%', margin='10px 0 0')
         )
         self.btn_white_background.add_class('sv-btn')
+
+        button_tooltips = {
+            'btn_prev_section': 'Go to the previous section.',
+            'btn_next_section': 'Go to the next section.',
+            'btn_show_section_geometry': (
+                'Show or hide the selected section geometry.'
+            ),
+            'btn_prev_subsection': 'Go to the previous subsection.',
+            'btn_next_subsection': 'Go to the next subsection.',
+            'btn_flag_missing': (
+                'Add one missing-spine flag to the current subsection.'
+            ),
+            'btn_subsection_done': (
+                'Mark the current subsection as reviewed and advance to the next one.'
+            ),
+            'btn_prev_spine': 'Go to the previous spine in this section.',
+            'btn_next_spine': 'Go to the next spine in this section.',
+            'btn_show_structure': (
+                'Show or hide the segmented head and neck structure for the selected spine.'
+            ),
+            'btn_spine_done': (
+                'Save the current spine answers, mark the spine complete, and advance.'
+            ),
+            'btn_screenshot': 'Capture the current viewport as a PNG screenshot.',
+            'btn_toggle_analysis': 'Show or hide the analysis summary tables.',
+            'btn_generate_report': 'Generate the PDF analysis report for this assessment.',
+            'btn_register': (
+                'Save, package, and upload the validation CSV and analysis PDF.'
+            ),
+            'btn_white_background': (
+                'Switch the viewport between white and black backgrounds.'
+            ),
+        }
+        for attribute, tooltip in button_tooltips.items():
+            getattr(self, attribute).tooltip = tooltip
+
+        projection_tooltips = {
+            'xy': 'View the morphology in the XY plane along the +Z axis.',
+            'xz': 'View the morphology in the XZ plane along the +Y axis.',
+            'yz': 'View the morphology in the YZ plane along the +X axis.',
+            '-xy': 'View the morphology in the XY plane along the -Z axis.',
+            '-xz': 'View the morphology in the XZ plane along the -Y axis.',
+            '-yz': 'View the morphology in the YZ plane along the -X axis.',
+        }
+        for code, tooltip in projection_tooltips.items():
+            self.proj_cells[code][1].tooltip = tooltip
 
     def _install_scale_bar(self):
         """Install the legacy overlay once on the final K3D plot."""
@@ -2791,8 +2906,24 @@ class SpineValidationDesign:
                 f'{{ color: {color} !important; font-weight: 600; }}'
             )
         section_option_css = ''.join(section_option_colors)
+
+        subsection_option_colors = []
+        for option_index, sub in enumerate(section['subsections'], start=1):
+            missing_count = int(sub.get('missing_count', 0))
+            if missing_count > 0:
+                color = '#c5221f'
+            elif sub.get('done', False):
+                color = '#188038'
+            else:
+                color = '#777777'
+            subsection_option_colors.append(
+                f'.sv-app .sv-subsection-dropdown select option:nth-child({option_index}) '
+                f'{{ color: {color} !important; font-weight: 600; }}'
+            )
+        subsection_option_css = ''.join(subsection_option_colors)
+
         self.section_header_html.value = f"""
-        <style>{section_option_css}</style>
+        <style>{section_option_css}{subsection_option_css}</style>
         <div class="sv-col-header-row">
           <span class="sv-col-header">Section</span>
           <span class="sv-meta">Section {section_id}</span>
