@@ -23,22 +23,37 @@ def _load_validation_records(csv_path):
         rows
         and len(rows[0]) == 2
         and rows[0][0] == 'validation_format'
-        and rows[0][1] in {'2', '3'}
+        and rows[0][1] in {'2', '3', '4', '5'}
     )
     if not versioned_csv:
         return pd.read_csv(csv_path)
     validation_format_version = rows[0][1]
 
     try:
+        section_marker_index = rows.index(['table', 'section'])
+        section_header = rows[section_marker_index + 1]
         spine_marker_index = rows.index(['table', 'spine'])
         spine_header = rows[spine_marker_index + 1]
     except (ValueError, IndexError) as exc:
         raise ValueError(f'Invalid validation table in {csv_path}') from exc
 
+    section_field_indices = {
+        field_name: section_header.index(field_name)
+        for field_name in section_header
+    }
+    missing_section_field = 'Missing Segmented Spines'
+    if missing_section_field not in section_field_indices:
+        raise ValueError(f'Unexpected section table headers in {csv_path}')
+
     expected_spine_header = [
         'Section ID', 'Local Spine ID', 'Global Spine ID', 'Validity',
         'Correct Type', 'False Positive', 'Incomplete Spine', 'Falsely Extended',
         'Merged Spine', 'Split Spine',
+    ]
+    current_spine_header = [
+        'Section ID', 'Local Spine ID', 'Global Spine ID', 'Validity',
+        'Correct Type', 'Valid Structure', 'False Positive',
+        'Incomplete Spine', 'Falsely Extended', 'Merged Spine', 'Split Spine',
     ]
     previous_spine_header = [
         'Section ID', 'Local Spine ID', 'Global Spine ID', 'Validity',
@@ -57,6 +72,7 @@ def _load_validation_records(csv_path):
     ]
     if spine_header not in (
         expected_spine_header,
+        current_spine_header,
         previous_spine_header,
         legacy_spine_header,
         previous_legacy_spine_header,
@@ -64,6 +80,7 @@ def _load_validation_records(csv_path):
         raise ValueError(f'Unexpected spine table headers in {csv_path}')
     explicit_identity = spine_header in (
         expected_spine_header,
+        current_spine_header,
         previous_spine_header,
     )
     has_correct_type = 'Correct Type' in spine_header
@@ -73,15 +90,15 @@ def _load_validation_records(csv_path):
     }
 
     records = []
-    for row in rows[3:spine_marker_index]:
-        if len(row) != 10:
+    for row in rows[section_marker_index + 2:spine_marker_index]:
+        if len(row) != len(section_header):
             raise ValueError(f'Invalid section row in {csv_path}')
         records.append({
             'record_type': 'section',
-            'section_id': row[0],
+            'section_id': row[section_field_indices['Section']],
             'spine_index': '',
             'spine_id': '',
-            'status': row[9].strip().lower(),
+            'status': row[section_field_indices[missing_section_field]].strip().lower(),
         })
 
     issue_columns = {
@@ -93,7 +110,7 @@ def _load_validation_records(csv_path):
     }
     spine_indices = {}
     spine_table_end = len(rows)
-    if validation_format_version == '3':
+    if validation_format_version in {'3', '4', '5'}:
         try:
             spine_table_end = rows.index(
                 ['table', 'subsection'],

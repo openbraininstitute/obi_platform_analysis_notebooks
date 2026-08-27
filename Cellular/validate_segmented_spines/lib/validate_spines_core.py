@@ -1769,9 +1769,6 @@ def validate_spines(morphology_path, mesh_path):
         """Capture the displayed K3D canvas with its exact WebGL shading."""
         if screenshot_request_path[0] is not None:
             return
-        if not current_spine_data:
-            print('No spine is currently loaded; screenshot was not saved.')
-            return
 
         screenshot_request_token[0] += 1
         request_token = screenshot_request_token[0]

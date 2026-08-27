@@ -11,8 +11,8 @@ else:  # Support notebooks that add ``lib`` directly to ``sys.path``.
     import proofreading_interface
 
 
-def run(mesh_path, morphology_path):
-    """Launch proofreading for the supplied mesh and morphology files.
+def run(mesh_path, morphology_path, validation_csv_path=None):
+    """Launch proofreading for the supplied dataset.
 
     Parameters
     ----------
@@ -20,6 +20,9 @@ def run(mesh_path, morphology_path):
         Path to the segmented mesh used for visualization.
     morphology_path : path-like
         Path to the morphology containing the spine annotations.
+    validation_csv_path : path-like, optional
+        Explicit validation output path. Real datasets otherwise use the
+        legacy mesh-adjacent path; mock mode remains non-persistent by default.
 
     Returns
     -------
@@ -30,4 +33,5 @@ def run(mesh_path, morphology_path):
     return proofreading_interface.display_preview(
         morphology_path=morphology_path,
         mesh_path=mesh_path,
+        validation_csv_path=validation_csv_path,
     )
