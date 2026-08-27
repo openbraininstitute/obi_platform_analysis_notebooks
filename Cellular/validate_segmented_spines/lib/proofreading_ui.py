@@ -2692,11 +2692,11 @@ class SpineValidationDesign:
             self._set_status('2/4 Generating analysis PDF...')
             self.refresh()
             try:
-                report_module = importlib.import_module('validate_spine_analysis')
+                report_module = importlib.import_module('proofreading_analysis')
             except ModuleNotFoundError as exc:
-                if exc.name != 'validate_spine_analysis' or not __package__:
+                if exc.name != 'proofreading_analysis' or not __package__:
                     raise
-                from . import validate_spine_analysis as report_module
+                from . import proofreading_analysis as report_module
             report_module = importlib.reload(report_module)
             report_path = await asyncio.to_thread(
                 report_module.generate_report,
@@ -2770,11 +2770,11 @@ class SpineValidationDesign:
             self._set_status('Generating PDF report...')
             self.refresh()
             try:
-                report_module = importlib.import_module('validate_spine_analysis')
+                report_module = importlib.import_module('proofreading_analysis')
             except ModuleNotFoundError as exc:
-                if exc.name != 'validate_spine_analysis' or not __package__:
+                if exc.name != 'proofreading_analysis' or not __package__:
                     raise
-                from . import validate_spine_analysis as report_module
+                from . import proofreading_analysis as report_module
             report_module = importlib.reload(report_module)
             report_path = await asyncio.to_thread(
                 report_module.generate_report,

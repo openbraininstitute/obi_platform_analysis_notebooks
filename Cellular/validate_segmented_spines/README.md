@@ -33,7 +33,7 @@ The interface is implemented as an interactive Jupyter widget layout backed by a
 | `analysis_noteboo_local.ipynb` | Local/replay notebook. Loads hardcoded local HDF5 and GLB paths and launches the validator without repeating OBI selection and download. The filename is retained as it currently exists in the repository. |
 | `lib/obi.py` | OBI authentication, project/dataset selection, morphology selection, morphology export, and source-mesh download helpers. |
 | `lib/validate_spines_core.py` | Main interactive validation interface and workflow logic. |
-| `lib/validate_spine_analysis.py` | Report-generation helper used by **Generate Report** and **Register**. |
+| `lib/proofreading_analysis.py` | Report-generation helper used by **Generate Report** and **Register**. |
 | `lib/validate_spines_report.py` | Additional report-related helper kept in the `lib` directory; consult the active notebook/import path before using it directly. |
 | `lib/fonts/` | Fonts used when generating the analysis PDF, if available in the checkout. |
 
