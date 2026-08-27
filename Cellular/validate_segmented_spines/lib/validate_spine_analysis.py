@@ -463,7 +463,9 @@ def generate_report(
         ]
     )
     section_snapshot_pattern = re.compile(r'^section_(\d+)_(\d+)\.png$')
-    spine_snapshot_pattern = re.compile(r'^section_(\d+)_spine_(\d+)_(\d+)\.png$')
+    spine_snapshot_pattern = re.compile(
+        r'^section_(\d+)_spine_(\d+)(?:_structure_snapshot)?_(\d+)\.png$'
+    )
     section_snapshots = []
     spine_snapshots = []
     for image_path in images_dir.glob('section_*.png'):
