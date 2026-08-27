@@ -484,8 +484,8 @@ def _font_face_css(fonts_dir):
     """Build @font-face rules for bundled Archivo variable font files."""
     fonts_dir = Path(fonts_dir)
     faces = [
-        ('Archivo-Variable.ttf', '100 900', 'normal'),
-        ('Archivo-Italic-Variable.ttf', '100 900', 'italic'),
+        ('archivo_variable.ttf', '100 900', 'normal'),
+        ('archivo_italic.ttf', '100 900', 'italic'),
     ]
     rules = []
     for filename, weight, style in faces:
