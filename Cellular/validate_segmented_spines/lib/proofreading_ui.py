@@ -93,6 +93,112 @@ def _resolve_username():
     return username.upper() if username else 'UNKNOWN-USER'
 
 
+def _registration_upload_succeeded(result):
+    """Recognize successful responses returned by the registration uploader."""
+    if not isinstance(result, dict) or result.get('error'):
+        return False
+
+    success = result.get('success')
+    if isinstance(success, str):
+        return success.strip().lower() in {
+            'true', 'success', 'ok', 'uploaded'
+        }
+    if success is True:
+        return True
+
+    status = result.get('status')
+    if isinstance(status, str) and status.strip().lower() in {
+        'success', 'ok', 'uploaded', 'complete', 'completed'
+    }:
+        return True
+
+    return bool(result.get('filename') or result.get('url'))
+
+
+def _registration_identifier(mesh_path, username):
+    """Return a collision-resistant mesh/user/timestamp registration path."""
+    from datetime import datetime, timezone
+
+    if mesh_path is None:
+        raise ValueError('Registration requires a mesh path.')
+    mesh_path = Path(mesh_path)
+    timestamp = datetime.now(timezone.utc).strftime('%y.%m.%d_%H.%M.%S')
+    user_token = re.sub(r'[^A-Za-z0-9_.-]+', '_', str(username)).strip('._-')
+    user_token = user_token or 'unknown-user'
+    base_name = f'{mesh_path.stem}_{user_token}_{timestamp}'
+    destination = mesh_path.parent / base_name
+    collision_index = 1
+    while destination.exists():
+        destination = mesh_path.parent / f'{base_name}_{collision_index}'
+        collision_index += 1
+    return destination
+
+
+def _stage_registration_directory(destination, csv_path, report_path):
+    """Stage exactly one validation CSV and one analysis PDF."""
+    import shutil
+
+    destination = Path(destination)
+    csv_path = Path(csv_path)
+    report_path = Path(report_path)
+    if not csv_path.is_file():
+        raise FileNotFoundError(f'Validation CSV does not exist: {csv_path}')
+    if csv_path.suffix.lower() != '.csv':
+        raise ValueError(f'Registration requires a CSV file: {csv_path}')
+    if not report_path.is_file():
+        raise FileNotFoundError(f'Analysis PDF does not exist: {report_path}')
+    if (
+        report_path.suffix.lower() != '.pdf'
+        or not report_path.stem.lower().endswith('_analysis')
+    ):
+        raise ValueError(
+            f'Registration requires an analysis PDF named *_analysis.pdf: '
+            f'{report_path}'
+        )
+
+    destination.mkdir(parents=True, exist_ok=False)
+    csv_destination = destination / csv_path.name
+    pdf_destination = destination / report_path.name
+    shutil.copy2(csv_path, csv_destination)
+    shutil.copy2(report_path, pdf_destination)
+
+    staged_files = {
+        path.name for path in destination.iterdir() if path.is_file()
+    }
+    expected_files = {csv_destination.name, pdf_destination.name}
+    if staged_files != expected_files:
+        raise RuntimeError(
+            'Registration staging must contain only CSV and analysis PDF; '
+            f'found {sorted(staged_files)}'
+        )
+    return destination
+
+
+def _load_registration_uploader():
+    """Load the plural registration helper used by the legacy workflow."""
+    module_name = (
+        f'{__package__}.validate_spines_registration'
+        if __package__
+        else 'validate_spines_registration'
+    )
+    try:
+        registration_module = importlib.import_module(module_name)
+    except ModuleNotFoundError as exc:
+        if exc.name != 'validate_spines_registration':
+            raise
+        registration_module = importlib.import_module(
+            'examples.validate_spines_registration'
+        )
+    registration_module = importlib.reload(registration_module)
+    upload_zip = getattr(registration_module, 'upload_zip', None)
+    if not callable(upload_zip):
+        raise TypeError(
+            f'Registration helper {registration_module.__file__} '
+            'does not define callable upload_zip'
+        )
+    return upload_zip, registration_module.__file__
+
+
 class _MeshSpatialIndex:
     """Query full-resolution mesh vertices inside axis-aligned boxes."""
 
@@ -557,6 +663,7 @@ class SpineValidationDesign:
         self._screenshot_request_token = 0
         self._screenshot_save_task = None
         self._report_task = None
+        self._registration_task = None
         self._persistence_dirty = False
         self._last_persistence_error = None
         self._build_widgets()
@@ -2428,11 +2535,106 @@ class SpineValidationDesign:
         return self._save_state() is not None
 
     def _on_register(self, _button):
-        if not self._save_state_required():
+        """Start the asynchronous CSV/PDF registration workflow."""
+        if self._registration_task is not None and not self._registration_task.done():
+            return
+        if self.state.validation_csv_path is None:
+            self._set_status('Registration unavailable: no validation CSV path.')
             self.refresh()
             return
-        self._set_status('Assessment registered.')
+        self.btn_register.disabled = True
+        self._set_status('Preparing registration...')
         self.refresh()
+        try:
+            self._registration_task = asyncio.create_task(
+                self._registration_worker()
+            )
+        except RuntimeError as exc:
+            self.btn_register.disabled = False
+            error_detail = html.escape(f'{type(exc).__name__}: {exc}')
+            self._set_status(f'Registration failed: {error_detail}')
+            self.refresh()
+
+    async def _registration_worker(self):
+        """Generate, stage, and upload the current validation assessment."""
+        destination = None
+        try:
+            self._set_status('1/4 Saving validation data...')
+            self.refresh()
+            csv_path = self._save_state()
+            if csv_path is None:
+                raise RuntimeError(
+                    'Registration requires a persisted validation CSV.'
+                )
+            csv_path = Path(csv_path)
+
+            screenshot_task = self._screenshot_save_task
+            if screenshot_task is not None and not screenshot_task.done():
+                self._set_status('1/4 Waiting for the latest screenshot...')
+                self.refresh()
+                await screenshot_task
+
+            self._set_status('2/4 Generating analysis PDF...')
+            self.refresh()
+            try:
+                report_module = importlib.import_module('validate_spine_analysis')
+            except ModuleNotFoundError as exc:
+                if exc.name != 'validate_spine_analysis' or not __package__:
+                    raise
+                from . import validate_spine_analysis as report_module
+            report_module = importlib.reload(report_module)
+            report_path = await asyncio.to_thread(
+                report_module.generate_report,
+                images_dir=csv_path.parent,
+                csv_path=csv_path,
+                fonts_dir=Path(__file__).resolve().parent / 'fonts',
+                output_dir=csv_path.parent,
+            )
+            report_path = Path(report_path)
+            if not report_path.is_file():
+                raise FileNotFoundError(
+                    f'Analysis PDF generation did not produce: {report_path}'
+                )
+
+            destination = _registration_identifier(
+                self.state.mesh_path,
+                self.username,
+            )
+            self._set_status('3/4 Staging registration artifacts...')
+            self.refresh()
+            await asyncio.to_thread(
+                _stage_registration_directory,
+                destination,
+                csv_path,
+                report_path,
+            )
+
+            upload_zip, helper_path = _load_registration_uploader()
+            self._set_status('4/4 Uploading registration archive...')
+            self.refresh()
+            result = await asyncio.to_thread(
+                upload_zip,
+                str(destination),
+                'archives',
+                message='Validation CSV and analysis PDF registration',
+            )
+            if _registration_upload_succeeded(result):
+                self._set_status(
+                    f'Registration complete: {html.escape(destination.name)}'
+                )
+            else:
+                error = result.get('error') if isinstance(result, dict) else result
+                self._set_status(
+                    'Registration upload failed: '
+                    f'{html.escape(str(error))}'
+                )
+        except Exception as exc:
+            error_detail = html.escape(f'{type(exc).__name__}: {exc}')
+            self._set_status(f'Registration failed: {error_detail}')
+        finally:
+            self.btn_register.disabled = False
+            self._registration_task = None
+            self.refresh()
 
     async def _generate_report_worker(self):
         """Persist the assessment and create the legacy analysis PDF."""
