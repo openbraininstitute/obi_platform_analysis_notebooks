@@ -462,9 +462,11 @@ def generate_report(
             'section_id',
         ]
     )
-    section_snapshot_pattern = re.compile(r'^section_(\d+)_(\d+)\.png$')
+    section_snapshot_pattern = re.compile(
+        r'^section_(\d+)(?:_(?:error|structure))?_(\d+)\.png$'
+    )
     spine_snapshot_pattern = re.compile(
-        r'^section_(\d+)_spine_(\d+)(?:_structure_snapshot)?_(\d+)\.png$'
+        r'^section_(\d+)_spine_(\d+)(?:_(?:error|structure|structure_snapshot))?_(\d+)\.png$'
     )
     section_snapshots = []
     spine_snapshots = []

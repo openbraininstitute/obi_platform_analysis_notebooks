@@ -1406,6 +1406,39 @@ def validate_spines(morphology_path, mesh_path):
         ]
 
 
+    def set_camera_on_oriented(center, radius, view_direction):
+        """Set the camera on a direction with a stable perpendicular up vector."""
+        center = np.asarray(center, dtype=np.float32)
+        view = np.asarray(view_direction, dtype=np.float32)
+        view_norm = float(np.linalg.norm(view))
+        if (
+            center.shape != (3,)
+            or not np.all(np.isfinite(center))
+            or view.shape != (3,)
+            or not np.all(np.isfinite(view))
+            or view_norm <= 1e-6
+        ):
+            set_camera_on(center, radius)
+            return
+
+        view /= view_norm
+        basis = np.eye(3, dtype=np.float32)
+        for candidate in basis[np.argsort(np.abs(basis @ view))]:
+            up = candidate - np.dot(candidate, view) * view
+            up_norm = float(np.linalg.norm(up))
+            if up_norm > 1e-6:
+                up /= up_norm
+                break
+        else:
+            set_camera_on(center, radius)
+            return
+
+        plot.camera_auto_fit = False
+        distance = max(float(radius), 1e-6) * 1.5
+        position = center + view * distance
+        plot.camera = position.tolist() + center.tolist() + up.tolist()
+
+
     def set_projection(view_direction, up_direction):
         """Set an orthographic axis view while preserving the current target."""
         camera = np.asarray(plot.camera, dtype=np.float32)
@@ -1430,11 +1463,11 @@ def validate_spines(morphology_path, mesh_path):
     def screenshot_path():
         """Build the next available screenshot path for the current view.
 
-        Section-only captures use ``section_<section_id>_<sequence>.png``.
+        Section-only captures use ``section_<section_id>_error_<sequence>.png``.
         Normal selected-spine captures use
-        ``section_<section_id>_spine_<spine_id>_<sequence>.png``.
+        ``section_<section_id>_spine_<spine_id>_error_<sequence>.png``.
         Structure captures use
-        ``section_<section_id>_spine_<spine_id>_structure_snapshot_<sequence>.png``.
+        ``section_<section_id>_spine_<spine_id>_structure_<sequence>.png``.
         The sequence is scoped to the active filename prefix and is the snapshot ID.
         """
         sec_id = spiny_sections[current_section_idx[0]][0]
@@ -1442,14 +1475,14 @@ def validate_spines(morphology_path, mesh_path):
 
         if spine_selected[0] and current_spine_data:
             spine_id = current_spine_id()
-            structure_marker = (
-                '_structure_snapshot'
+            view_marker = (
+                'structure'
                 if spine_structure_visible[0]
-                else ''
+                else 'error'
             )
-            prefix = f'section_{sec_id}_spine_{spine_id}{structure_marker}_'
+            prefix = f'section_{sec_id}_spine_{spine_id}_{view_marker}_'
         else:
-            prefix = f'section_{sec_id}_'
+            prefix = f'section_{sec_id}_error_'
 
         pattern = re.compile(rf'^{re.escape(prefix)}(\d+)\.png$')
         sequence_numbers = []
@@ -1992,8 +2025,34 @@ def validate_spines(morphology_path, mesh_path):
         if not 0 <= subsection_idx < len(subsections):
             hide_bbox()
             return
+
         subsection = subsections[subsection_idx]
-        set_camera_on(subsection['center'], subsection['radius'])
+        section_points = sections_points.get(sec_id)
+        try:
+            points = np.asarray(section_points, dtype=np.float32)
+        except (TypeError, ValueError):
+            points = None
+
+        if (
+            points is None
+            or points.ndim != 2
+            or points.shape[1] != 3
+            or points.shape[0] == 0
+            or not np.all(np.isfinite(points))
+        ):
+            set_camera_on(subsection['center'], subsection['radius'])
+            return
+
+        box_extent = points.max(axis=0) - points.min(axis=0)
+        if not np.all(np.isfinite(box_extent)) or float(np.max(box_extent)) <= 1e-6:
+            set_camera_on(subsection['center'], subsection['radius'])
+            return
+
+        view_direction = np.zeros(3, dtype=np.float32)
+        view_direction[int(np.argmax(box_extent))] = 1.0
+        set_camera_on_oriented(
+            subsection['center'], subsection['radius'], view_direction
+        )
 
 
     # Expand each section's local query radius slightly so vertices on or just
@@ -2515,7 +2574,7 @@ def validate_spines(morphology_path, mesh_path):
         btn_spine_done_next.disabled = not (all_issues_no or has_defect)
         btn_show_spine_structure.disabled = not spine_selected_now
         btn_show_spine_structure.description = (
-            'Show Spine Color'
+            'Show Spine Geometry'
             if spine_structure_visible[0]
             else 'Show Spine Structure'
         )
@@ -2621,7 +2680,7 @@ def validate_spines(morphology_path, mesh_path):
             'invalid': '#c5221f',
             VALIDITY_NOT_SET: '#f29900',
         }
-        section_status_color = '#188038' if section_complete else '#c5221f'
+        section_status_color = '#188038' if section_complete else '#f29900'
         section_spines_color = (
             '#188038' if section_validated >= spine_count else '#b06000'
         )
