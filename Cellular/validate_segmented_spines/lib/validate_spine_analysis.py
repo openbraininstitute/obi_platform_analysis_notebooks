@@ -195,6 +195,33 @@ def generate_report(
     export_dpi=150,
     snapshot_jpeg_quality=75,
 ):
+    """Generate the report as files without enabling notebook figure display.
+
+    The report still returns the generated analysis PDF path. Matplotlib's
+    non-interactive context prevents a notebook backend from publishing any
+    report figures while they are being rendered for PNG/PDF export.
+    """
+    with plt.ioff():
+        return _generate_report(
+            images_dir=images_dir,
+            csv_path=csv_path,
+            fonts_dir=fonts_dir,
+            output_dir=output_dir,
+            render_dpi=render_dpi,
+            export_dpi=export_dpi,
+            snapshot_jpeg_quality=snapshot_jpeg_quality,
+        )
+
+
+def _generate_report(
+    images_dir,
+    csv_path,
+    fonts_dir,
+    output_dir,
+    render_dpi=150,
+    export_dpi=150,
+    snapshot_jpeg_quality=75,
+):
     """Generate the combined analysis PDF report.
 
     Parameters
