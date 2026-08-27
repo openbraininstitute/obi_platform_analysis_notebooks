@@ -390,6 +390,8 @@ class DesignState:
             morphology_path=self.morphology_path,
             validation_csv_path=validation_csv_path,
         )
+        if self.validation_csv_path is not None:
+            self.validation_csv_path.parent.mkdir(parents=True, exist_ok=True)
         self.morphology = None
         mesh_neuron_id = get_neuron_id_from_mesh_path(self.mesh_path)
         if self.morphology_path is None:
