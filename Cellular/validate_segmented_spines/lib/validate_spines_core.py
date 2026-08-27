@@ -577,6 +577,7 @@ def validate_spines(morphology_path, mesh_path):
     PALETTE_SATURATION = 0.82
     PALETTE_VALUE = 0.90
     UNSELECTED_SPINE_COLOR = 0xA0A0A0
+    SPINE_SELECTED_COLOR = 0xFF0000
     SPINE_LOAD_DELAY = 0.05
     SECTION_CENTERLINE_WIDTH = 9.0
     SECTION_CENTERLINE_COLOR = 0xFF0000
@@ -2224,12 +2225,8 @@ def validate_spines(morphology_path, mesh_path):
         if generation != load_generation[0]:
             return
 
-        colors = section_spine_colors.setdefault(
-            sec_id, make_distinct_palette(len(spine_list))
-        )
-
-        for spine_idx, spine_mesh, color in zip(
-            spine_indices, spine_list, colors, strict=True
+        for spine_idx, spine_mesh in zip(
+            spine_indices, spine_list, strict=True
         ):
             if spine_mesh.is_empty or len(spine_mesh.vertices) == 0:
                 continue
@@ -2239,17 +2236,21 @@ def validate_spines(morphology_path, mesh_path):
             vertices = np.asarray(spine_mesh.vertices, dtype=np.float32)
 
             if len(spine_mesh.faces) == 0:
-                obj = k3d.points(vertices, point_size=0.05, color=color)
+                obj = k3d.points(
+                    vertices,
+                    point_size=0.05,
+                    color=UNSELECTED_SPINE_COLOR,
+                )
             else:
                 faces = np.asarray(spine_mesh.faces, dtype=np.uint32).reshape(-1)
                 obj = k3d.mesh(
-                    vertices, faces, color=color, opacity=1.0,
+                    vertices, faces, color=UNSELECTED_SPINE_COLOR, opacity=1.0,
                     flat_shading=True, wireframe=False
                 )
 
             add_to_plot(obj)
             current_spine_meshes_k3d.append(obj)
-            current_spine_colors.append(color)
+            current_spine_colors.append(UNSELECTED_SPINE_COLOR)
 
         if generation != load_generation[0]:
             return
@@ -2262,6 +2263,7 @@ def validate_spines(morphology_path, mesh_path):
             focus_camera=True,
         )
         update_section_point_cloud(sec_id)
+        update_spine_colors()
         update_info()
 
 
@@ -2285,58 +2287,25 @@ def validate_spines(morphology_path, mesh_path):
 
 
     def update_spine_colors():
-        """Highlight the focused spine and dim the other section spines."""
-        selected_idx = current_spine_idx[0]
-        previous_idx = previous_colored_spine_idx[0]
-
-        def set_color_if_needed(spine_idx, color):
-            if not 0 <= spine_idx < len(current_spine_meshes_k3d):
-                return
-            spine_object = current_spine_meshes_k3d[spine_idx]
-            if spine_object.color != color:
-                spine_object.color = color
-
-        def palette_color(spine_idx):
-            if spine_idx >= len(current_spine_colors):
-                return None
-            return current_spine_colors[spine_idx]
-
-        if not spine_selected[0]:
-            # A section-level view shows every spine in its assigned palette
-            # color until a specific spine is focused.
-            for spine_idx in range(len(current_spine_meshes_k3d)):
-                color = palette_color(spine_idx)
-                if color is not None:
-                    set_color_if_needed(spine_idx, color)
-            spine_colors_initialized[0] = True
-        elif not spine_colors_initialized[0] or previous_idx is None:
-            # On first focus, keep the focused spine colorful and dim all peers.
-            for spine_idx in range(len(current_spine_meshes_k3d)):
-                color = palette_color(spine_idx)
-                if color is None:
-                    continue
-                target_color = (
-                    color
-                    if spine_idx == selected_idx
-                    else UNSELECTED_SPINE_COLOR
-                )
-                set_color_if_needed(spine_idx, target_color)
-            spine_colors_initialized[0] = True
-        elif previous_idx != selected_idx:
-            # Restore the old focus to gray and restore the new focus's palette
-            # color; all other non-focused spines remain gray.
-            if previous_idx is not None:
-                set_color_if_needed(previous_idx, UNSELECTED_SPINE_COLOR)
-            color = palette_color(selected_idx)
-            if color is not None:
-                set_color_if_needed(selected_idx, color)
-
-        previous_colored_spine_idx[0] = (
-            selected_idx
-            if spine_selected[0]
-            and 0 <= selected_idx < len(current_spine_meshes_k3d)
+        """Keep all full-spine meshes gray except the focused spine."""
+        selected_idx = (
+            current_spine_idx[0]
+            if (
+                spine_selected[0]
+                and 0 <= current_spine_idx[0] < len(current_spine_meshes_k3d)
+            )
             else None
         )
+        for spine_idx, spine_object in enumerate(current_spine_meshes_k3d):
+            target_color = (
+                SPINE_SELECTED_COLOR
+                if spine_idx == selected_idx
+                else UNSELECTED_SPINE_COLOR
+            )
+            if spine_object.color != target_color:
+                spine_object.color = target_color
+        spine_colors_initialized[0] = True
+        previous_colored_spine_idx[0] = selected_idx
 
 
     def ensure_spine_analysis_defaults():

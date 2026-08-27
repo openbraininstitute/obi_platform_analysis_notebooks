@@ -68,6 +68,8 @@ PROJECTION_CELLS = [
 SCALE_BAR_UNIT_LABEL = 'µm'
 SCALE_BAR_WORLD_UNITS_PER_DISPLAY_UNIT = 1.0
 VIEWPORT_CAMERA_FOV = 90.0
+SPINE_UNSELECTED_COLOR = 0xA0A0A0
+SPINE_SELECTED_COLOR = 0xFF0000
 OBI_LOGO_PATH = Path(__file__).resolve().parent / 'assets' / 'obi_logo.png'
 OBI_LOGO_DATA_URI = (
     'data:image/png;base64,'
@@ -533,7 +535,7 @@ class SpineValidationDesign:
         )
         self.username = _resolve_username()
         self._silent = False
-        self._analysis_visible = True
+        self._analysis_visible = False
         self._section_points = {}
         self._section_centerlines = {}
         self._section_terminal_markers = None
@@ -1204,6 +1206,7 @@ class SpineValidationDesign:
         vertices = np.asarray(vertices, dtype=np.float32)
         if vertices.ndim != 2 or vertices.shape[1] != 3 or vertices.shape[0] == 0:
             return
+        self._update_spine_colors()
         bounds_min = vertices.min(axis=0)
         bounds_max = vertices.max(axis=0)
         self._update_spine_bbox(vertices)
@@ -1232,16 +1235,28 @@ class SpineValidationDesign:
                 self.refresh()
                 return
 
+    def _update_spine_colors(self):
+        """Keep full-spine meshes gray except for the focused spine."""
+        selected_index = (
+            self.state.spine_index if self._spine_selected else None
+        )
+        for spine_index, spine_object in enumerate(
+            self._section_spine_objects_by_index
+        ):
+            if spine_object is None:
+                continue
+            color = (
+                SPINE_SELECTED_COLOR
+                if spine_index == selected_index
+                else SPINE_UNSELECTED_COLOR
+            )
+            if spine_object.color != color:
+                spine_object.color = color
+
     @staticmethod
-    def _spine_color(index):
-        red, green, blue = colorsys.hsv_to_rgb(
-            (index * 0.618033988749895) % 1.0, 0.82, 0.90
-        )
-        return (
-            (int(red * 255) << 16)
-            | (int(green * 255) << 8)
-            | int(blue * 255)
-        )
+    def _spine_color(_index):
+        """Return the default gray color for an unselected full spine."""
+        return SPINE_UNSELECTED_COLOR
 
     @staticmethod
     def _spine_mesh_object(spine_mesh, color):
@@ -1315,6 +1330,7 @@ class SpineValidationDesign:
         self._show_selected_subsection(self.state.subsection_index)
         if self._spine_selected:
             self._focus_spine(self.state.spine_index)
+        self._update_spine_colors()
         self._set_status(f'Section {section_id} loaded.')
         self.refresh()
 
@@ -1805,6 +1821,7 @@ class SpineValidationDesign:
         )
         self._clear_spine_geometry()
         self._spine_selected = False
+        self._update_spine_colors()
         self._hide_spine_bbox()
         self.refresh()
         self._show_selected_subsection(self.state.subsection_index)
@@ -2152,14 +2169,12 @@ class SpineValidationDesign:
           <span class="sv-meta">Section {section_id}</span>
         </div>
         """
-        def section_progress(sec):
-            checked = s.section_checked_count(sec)
-            return 'Done' if s.section_is_checked(sec) else f'{checked}/{len(sec["spines"])} checked'
-
         section_options = [
             (
-                f"Section {sec.get('section_id', sec['index'])} — {len(sec['spines'])} spines — "
-                f"{section_progress(sec)} [{sec.get('missing_status', 'Not Set')}]",
+                f"Section {sec.get('section_id', sec['index'])} "
+                f"({len(sec['spines'])} spines — "
+                f"{s.section_checked_count(sec)}/{len(sec['spines'])}) "
+                f"[{sec.get('missing_status', 'Not Set')}]",
                 sec['index'],
             )
             for sec in s.sections
@@ -2203,7 +2218,11 @@ class SpineValidationDesign:
     def _refresh_spine_review(self, section, spine, spine_count):
         spine_review_enabled = self._spine_review_is_enabled()
         spine_options = [
-            (f"Spine {sp['index'] + 1} — {sp['type']} — {self.state.spine_validity(sp)}", sp['index'])
+            (
+                f"Spine {sp['index'] + 1} ({sp['global_id']}) — "
+                f"{sp['type']} [{str(self.state.spine_validity(sp)).title()}]",
+                sp['index'],
+            )
             for sp in section['spines']
         ]
         self.spine_dropdown.options = spine_options
