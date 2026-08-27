@@ -52,12 +52,17 @@ SUPPORTED_VALIDATION_SCHEMA_VERSIONS = {'2', '3', '4', '5'}
 VALIDITY_NOT_SET = 'Not Set'
 SECTION_CSV_FIELDS = [
     'Section', 'Number Spines', 'Validated (Yes or No)',
-    'Remaining Spines to Validate', 'False Positives',
+    'Remaining Spines to Validate', 'Incorrect Type', 'False Positives',
     'Incomplete Spines', 'Falsely Extended Spines',
-    'Merged Spines', 'Split Spines', 'Valid Structure',
+    'Merged Spines', 'Split Spines', 'Invalid Structure',
     'Missing Segmented Spines',
 ]
 SPINE_CSV_FIELDS = [
+    'Section ID', 'Local Spine ID', 'Global Spine ID', 'Validity',
+    'Incorrect Type', 'Invalid Structure', 'False Positive',
+    'Incomplete Spine', 'Falsely Extended', 'Merged Spine', 'Split Spine',
+]
+PREVIOUS_CURRENT_SPINE_CSV_FIELDS = [
     'Section ID', 'Local Spine ID', 'Global Spine ID', 'Validity',
     'Correct Type', 'Valid Structure', 'False Positive',
     'Incomplete Spine', 'Falsely Extended', 'Merged Spine', 'Split Spine',
@@ -477,12 +482,13 @@ def section_summary_row(state, section):
         for spine in spines
     )
     finding_fields = (
+        ('Incorrect Type', 'correct_type'),
         ('False Positives', 'false_positive'),
         ('Incomplete Spines', 'incomplete_spine'),
         ('Falsely Extended Spines', 'falsely_extended'),
         ('Merged Spines', 'merged_spine'),
         ('Split Spines', 'split_spine'),
-        ('Valid Structure', 'valid_structure'),
+        ('Invalid Structure', 'valid_structure'),
     )
     row = {
         'Section': _section_id(section),
@@ -521,10 +527,10 @@ def snapshot_validation_state(state):
                 'Local Spine ID': int(spine.get('index', local_index)),
                 'Global Spine ID': int(spine['global_id']),
                 'Validity': _serialize_validity(spine.get('validity')),
-                'Correct Type': _serialize_answer(
+                'Incorrect Type': _serialize_answer(
                     spine.get('answers', {}).get('correct_type')
                 ),
-                'Valid Structure': _serialize_answer(
+                'Invalid Structure': _serialize_answer(
                     spine.get('answers', {}).get('valid_structure')
                 ),
                 'False Positive': _serialize_answer(
@@ -751,8 +757,9 @@ def read_validation_csv(path, state):
         raise ValueError(f'Missing spine table headers in {path}')
     spine_header = rows[row_index]
     valid_spine_headers = {
-        tuple(SPINE_CSV_FIELDS), tuple(PREVIOUS_SPINE_CSV_FIELDS),
-        tuple(LEGACY_SPINE_CSV_FIELDS), tuple(PREVIOUS_LEGACY_SPINE_CSV_FIELDS),
+        tuple(SPINE_CSV_FIELDS), tuple(PREVIOUS_CURRENT_SPINE_CSV_FIELDS),
+        tuple(PREVIOUS_SPINE_CSV_FIELDS), tuple(LEGACY_SPINE_CSV_FIELDS),
+        tuple(PREVIOUS_LEGACY_SPINE_CSV_FIELDS),
     }
     if tuple(spine_header) not in valid_spine_headers:
         raise ValueError(f'Unexpected spine table headers in {path}')
@@ -766,6 +773,8 @@ def read_validation_csv(path, state):
         subsection_marker_index = len(rows)
     seen_spines = set()
     answer_columns = {
+        'Incorrect Type': 'correct_type',
+        'Invalid Structure': 'valid_structure',
         'Correct Type': 'correct_type',
         'Valid Structure': 'valid_structure',
         'False Positive': 'false_positive',

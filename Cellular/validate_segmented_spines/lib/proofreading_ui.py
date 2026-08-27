@@ -22,6 +22,11 @@ from IPython.display import HTML, clear_output, display
 
 from morph_spines_visualizer.core import data_loading, geometry
 
+try:
+    from scipy.spatial import cKDTree
+except ImportError:  # pragma: no cover - optional acceleration
+    cKDTree = None
+
 try:  # Package import, e.g. ``from . import proofreading_ui``.
     from .proofreading_functions import (
         ALL_ANSWER_KEYS,
@@ -82,6 +87,69 @@ def _resolve_username():
             username = 'unknown-user'
     username = str(username).strip()
     return username.upper() if username else 'UNKNOWN-USER'
+
+
+class _MeshSpatialIndex:
+    """Query full-resolution mesh vertices inside axis-aligned boxes."""
+
+    def __init__(self, vertices):
+        self.vertices = np.asarray(vertices, dtype=np.float32)
+        self.tree = (
+            cKDTree(self.vertices)
+            if cKDTree is not None and len(self.vertices)
+            else None
+        )
+        self.cell_size = None
+        self.bins = None
+        if self.tree is None and len(self.vertices):
+            extent = np.ptp(self.vertices, axis=0)
+            self.cell_size = max(
+                float(np.max(extent)) / 128.0,
+                np.finfo(np.float32).eps,
+            )
+            cell_coordinates = np.floor(
+                self.vertices / self.cell_size
+            ).astype(np.int64)
+            self.bins = {}
+            for vertex_index, cell in enumerate(map(tuple, cell_coordinates)):
+                self.bins.setdefault(cell, []).append(vertex_index)
+
+    def query_box(self, box_min, box_max):
+        """Return all indexed vertices inside an inclusive box."""
+        if not len(self.vertices):
+            return np.empty((0, 3), dtype=np.float32)
+
+        box_min = np.asarray(box_min, dtype=np.float32)
+        box_max = np.asarray(box_max, dtype=np.float32)
+        center = (box_min + box_max) * 0.5
+        half_extent = (box_max - box_min) * 0.5
+        if self.tree is not None:
+            radius = max(
+                float(np.max(half_extent)),
+                np.finfo(np.float32).eps,
+            )
+            candidate_indices = self.tree.query_ball_point(
+                center, radius, p=np.inf
+            )
+        else:
+            cell_min = np.floor(box_min / self.cell_size).astype(np.int64)
+            cell_max = np.floor(box_max / self.cell_size).astype(np.int64)
+            candidate_indices = []
+            for x in range(int(cell_min[0]), int(cell_max[0]) + 1):
+                for y in range(int(cell_min[1]), int(cell_max[1]) + 1):
+                    for z in range(int(cell_min[2]), int(cell_max[2]) + 1):
+                        candidate_indices.extend(
+                            self.bins.get((x, y, z), ())
+                        )
+
+        if not candidate_indices:
+            return np.empty((0, 3), dtype=np.float32)
+        candidate_indices = np.asarray(candidate_indices, dtype=np.intp)
+        candidates = self.vertices[candidate_indices]
+        inside = np.all(
+            (candidates >= box_min) & (candidates <= box_max), axis=1
+        )
+        return candidates[inside]
 
 
 def _scale_bar_js():
@@ -661,6 +729,8 @@ class SpineValidationDesign:
         self._subsection_overlay = None
         self._spine_bbox_lines = []
         self._global_mesh_object = None
+        self._mesh_spatial_index = None
+        self._section_point_cloud = None
         morphology = self.state.morphology
         if morphology is None:
             self.plot = build_sample_viewport(height=560)
@@ -734,7 +804,9 @@ class SpineValidationDesign:
                 str(self.state.mesh_path), scale_factor=1e-3
             )
             vertices = np.asarray(vertices, dtype=np.float32)
+            vertices = vertices[np.all(np.isfinite(vertices), axis=1)]
             if len(vertices):
+                self._mesh_spatial_index = _MeshSpatialIndex(vertices)
                 sample_count = max(1, int(round(len(vertices) * 0.15)))
                 sample_indices = np.linspace(
                     0, len(vertices) - 1, sample_count, dtype=np.intp
@@ -747,6 +819,16 @@ class SpineValidationDesign:
                     shader='flat',
                 )
                 self.plot += self._global_mesh_object
+                self._section_point_cloud = k3d.points(
+                    np.empty((0, 3), dtype=np.float32),
+                    point_size=0.025,
+                    color=0x2F80ED,
+                    opacity=0.8,
+                    shader='flat',
+                    name='Selected section mesh points',
+                )
+                self._section_point_cloud.visible = False
+                self.plot += self._section_point_cloud
 
         self._install_scale_bar()
 
@@ -754,6 +836,51 @@ class SpineValidationDesign:
         index = self.state.section_index if index is None else index
         section = self.state.sections[index]
         return int(section.get('section_id', section['index']))
+
+    def _clear_section_point_cloud(self):
+        """Hide the full-resolution mesh points for the previous section."""
+        if self._section_point_cloud is None:
+            return
+        self._section_point_cloud.positions = np.empty(
+            (0, 3), dtype=np.float32
+        )
+        self._section_point_cloud.visible = False
+
+    def _update_section_point_cloud(self, section_id):
+        """Show all mesh vertices inside the selected section's expanded bounds."""
+        if (
+            self._section_point_cloud is None
+            or self._mesh_spatial_index is None
+        ):
+            self._clear_section_point_cloud()
+            return
+
+        points = self._section_points.get(section_id)
+        if points is None:
+            self._clear_section_point_cloud()
+            return
+        points = np.asarray(points, dtype=np.float32)
+        if points.ndim != 2 or points.shape[1] != 3:
+            self._clear_section_point_cloud()
+            return
+        points = points[np.all(np.isfinite(points), axis=1)]
+        if len(points) == 0:
+            self._clear_section_point_cloud()
+            return
+
+        section_min = points.min(axis=0)
+        section_max = points.max(axis=0)
+        section_center = (section_min + section_max) * 0.5
+        section_half_extent = np.maximum(
+            (section_max - section_min) * 0.5 * 1.05,
+            np.finfo(np.float32).eps,
+        )
+        local_points = self._mesh_spatial_index.query_box(
+            section_center - section_half_extent,
+            section_center + section_half_extent,
+        )
+        self._section_point_cloud.positions = local_points
+        self._section_point_cloud.visible = len(local_points) > 0
 
     def _focus_section(self, section_id):
         """Focus the camera on a selected morphology centerline."""
@@ -1207,6 +1334,7 @@ class SpineValidationDesign:
         if self._section_load_task is not None and not self._section_load_task.done():
             self._section_load_task.cancel()
         self._clear_section_spines()
+        self._clear_section_point_cloud()
         self._clear_selected_subsection()
         # Every section load starts exactly like the legacy workflow: at the
         # first subsection and first spine, before any spine meshes are loaded.
@@ -1215,6 +1343,7 @@ class SpineValidationDesign:
         self._spine_selected = False
         section_id = self._selected_section_id(section_index)
         self._show_selected_section(section_id)
+        self._update_section_point_cloud(section_id)
         # Assign the first subsection geometry before focusing the camera. The
         # later async spine load re-applies this same subsection focus only; it
         # must not replace it with a spine focus.

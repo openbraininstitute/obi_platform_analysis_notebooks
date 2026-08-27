@@ -114,7 +114,7 @@ def create_validation_report_pdf(
         rows
         and len(rows[0]) == 2
         and rows[0][0] == 'validation_format'
-        and rows[0][1] in {'2', '3'}
+        and rows[0][1] in {'2', '3', '4', '5'}
     )
     if versioned_csv:
         validation_format_version = rows[0][1]
@@ -122,14 +122,33 @@ def create_validation_report_pdf(
         spine_marker = ["table", "spine"]
         section_fields = [
             "Section", "Number Spines", "Validated (Yes or No)",
+            "Remaining Spines to Validate", "Incorrect Type", "False Positives",
+            "Incomplete Spines", "Falsely Extended Spines",
+            "Merged Spines", "Split Spines", "Invalid Structure",
+            "Missing Segmented Spines",
+        ]
+        previous_section_fields = [
+            "Section", "Number Spines", "Validated (Yes or No)",
+            "Remaining Spines to Validate", "False Positives",
+            "Incomplete Spines", "Falsely Extended Spines",
+            "Merged Spines", "Split Spines", "Valid Structure",
+            "Missing Segmented Spines",
+        ]
+        legacy_section_fields = [
+            "Section", "Number Spines", "Validated (Yes or No)",
             "Remaining Spines to Validate", "False Positives",
             "Incomplete Spines", "Falsely Extended Spines",
             "Merged Spines", "Split Spines", "Missing Segmented Spines",
         ]
         spine_fields = [
             "Section ID", "Local Spine ID", "Global Spine ID", "Validity",
-            "Correct Type", "False Positive", "Incomplete Spine", "Falsely Extended",
-            "Merged Spine", "Split Spine",
+            "Incorrect Type", "Invalid Structure", "False Positive",
+            "Incomplete Spine", "Falsely Extended", "Merged Spine", "Split Spine",
+        ]
+        previous_current_spine_fields = [
+            "Section ID", "Local Spine ID", "Global Spine ID", "Validity",
+            "Correct Type", "Valid Structure", "False Positive", "Incomplete Spine",
+            "Falsely Extended", "Merged Spine", "Split Spine",
         ]
         previous_spine_fields = [
             "Section ID", "Local Spine ID", "Global Spine ID", "Validity",
@@ -145,34 +164,45 @@ def create_validation_report_pdf(
             "Incomplete Spine", "Falsely Extended", "Merged Spine",
             "Split Spine",
         ]
-        if rows[1] != section_marker or rows[2] != section_fields:
+        if rows[1] != section_marker or rows[2] not in (
+            section_fields,
+            previous_section_fields,
+            legacy_section_fields,
+        ):
             raise ValueError(f"Invalid section table in {validation_csv_path}")
         spine_marker_index = rows.index(spine_marker)
         spine_header = rows[spine_marker_index + 1]
         if spine_header not in (
             spine_fields,
+            previous_current_spine_fields,
             previous_spine_fields,
             legacy_spine_fields,
             previous_legacy_spine_fields,
         ):
             raise ValueError(f"Invalid spine table in {validation_csv_path}")
-        explicit_identity = spine_header in (spine_fields, previous_spine_fields)
+        explicit_identity = spine_header in (
+            spine_fields,
+            previous_current_spine_fields,
+            previous_spine_fields,
+        )
         spine_field_indices = {
             field_name: spine_header.index(field_name)
             for field_name in spine_header
         }
         error_columns = {
-            "False Positive": "False Positive",
-            "Incomplete Spine": "Incomplete Spine",
-            "Falsely Extended": "Falsely Extended",
-            "Merged Spine": "Merged Spine",
-            "Split Spine": "Split Spine",
+            field: field
+            for field in (
+                "Incorrect Type", "Invalid Structure", "False Positive",
+                "Incomplete Spine", "Falsely Extended", "Merged Spine", "Split Spine",
+            )
+            if field in spine_field_indices
         }
+        missing_section_column = rows[2].index("Missing Segmented Spines")
         for row in rows[3:spine_marker_index]:
-            if row[9].strip().lower() == "missing":
+            if row[missing_section_column].strip().lower() == "missing":
                 missing_section_ids.add(int(row[0]))
         spine_table_end = len(rows)
-        if validation_format_version == '3':
+        if validation_format_version in {'3', '4', '5'}:
             try:
                 spine_table_end = rows.index(
                     ['table', 'subsection'],

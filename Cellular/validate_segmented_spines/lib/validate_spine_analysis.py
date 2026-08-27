@@ -52,6 +52,11 @@ def _load_validation_records(csv_path):
     ]
     current_spine_header = [
         'Section ID', 'Local Spine ID', 'Global Spine ID', 'Validity',
+        'Incorrect Type', 'Invalid Structure', 'False Positive',
+        'Incomplete Spine', 'Falsely Extended', 'Merged Spine', 'Split Spine',
+    ]
+    previous_current_spine_header = [
+        'Section ID', 'Local Spine ID', 'Global Spine ID', 'Validity',
         'Correct Type', 'Valid Structure', 'False Positive',
         'Incomplete Spine', 'Falsely Extended', 'Merged Spine', 'Split Spine',
     ]
@@ -73,6 +78,7 @@ def _load_validation_records(csv_path):
     if spine_header not in (
         expected_spine_header,
         current_spine_header,
+        previous_current_spine_header,
         previous_spine_header,
         legacy_spine_header,
         previous_legacy_spine_header,
@@ -81,9 +87,16 @@ def _load_validation_records(csv_path):
     explicit_identity = spine_header in (
         expected_spine_header,
         current_spine_header,
+        previous_current_spine_header,
         previous_spine_header,
     )
-    has_correct_type = 'Correct Type' in spine_header
+    type_field_name = (
+        'Incorrect Type'
+        if 'Incorrect Type' in spine_header
+        else 'Correct Type'
+        if 'Correct Type' in spine_header
+        else None
+    )
     spine_field_indices = {
         field_name: spine_header.index(field_name)
         for field_name in spine_header
@@ -137,13 +150,25 @@ def _load_validation_records(csv_path):
             'spine_id': global_spine_id,
             'status': row[spine_field_indices['Validity']].strip().lower(),
         })
-        if has_correct_type:
+        if type_field_name is not None:
             records.append({
-                'record_type': 'correct_type',
+                'record_type': (
+                    'incorrect_type'
+                    if type_field_name == 'Incorrect Type'
+                    else 'correct_type'
+                ),
                 'section_id': section_id,
                 'spine_index': spine_index,
                 'spine_id': global_spine_id,
-                'status': row[spine_field_indices['Correct Type']].strip().lower(),
+                'status': row[spine_field_indices[type_field_name]].strip().lower(),
+            })
+        if 'Invalid Structure' in spine_header:
+            records.append({
+                'record_type': 'invalid_structure',
+                'section_id': section_id,
+                'spine_index': spine_index,
+                'spine_id': global_spine_id,
+                'status': row[spine_field_indices['Invalid Structure']].strip().lower(),
             })
         for field_name, record_type in issue_columns.items():
             records.append({
@@ -351,6 +376,8 @@ def generate_report(
     # Detailed error findings by section. Only confirmed 'yes' records are
     # counted, so the chart shows actual error findings rather than 'no' reviews.
     error_type_labels = {
+        'incorrect_type': 'Incorrect Type',
+        'invalid_structure': 'Invalid Structure',
         'false_positive': 'False Positive',
         'incomplete_spine': 'Incomplete Spine',
         'false_positive_quality': 'Falsely Extended',
@@ -391,6 +418,8 @@ def generate_report(
             error_counts.loc[grouped.index, error_type] = grouped.astype('int64')
 
     error_colors = {
+        'incorrect_type': '#C62828',
+        'invalid_structure': '#8E44AD',
         'false_positive': '#E76F51',
         'incomplete_spine': '#F4A261',
         'false_positive_quality': '#E9C46A',
