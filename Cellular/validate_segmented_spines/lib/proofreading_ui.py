@@ -8,8 +8,10 @@ viewport, event handlers, rendering, and notebook-facing preview functions.
 import asyncio
 import base64
 import colorsys
+import getpass
 import html
 import importlib
+import os
 import re
 from pathlib import Path
 
@@ -60,6 +62,7 @@ PROJECTION_CELLS = [
 
 SCALE_BAR_UNIT_LABEL = 'µm'
 SCALE_BAR_WORLD_UNITS_PER_DISPLAY_UNIT = 1.0
+VIEWPORT_CAMERA_FOV = 90.0
 OBI_LOGO_PATH = Path(__file__).resolve().parent / 'assets' / 'obi_logo.png'
 OBI_LOGO_DATA_URI = (
     'data:image/png;base64,'
@@ -67,6 +70,18 @@ OBI_LOGO_DATA_URI = (
     if OBI_LOGO_PATH.is_file()
     else ''
 )
+
+
+def _resolve_username():
+    """Return the active OBI or local username in display form."""
+    username = os.environ.get('OBI_USERNAME')
+    if not username:
+        try:
+            username = getpass.getuser()
+        except (KeyError, OSError):
+            username = 'unknown-user'
+    username = str(username).strip()
+    return username.upper() if username else 'UNKNOWN-USER'
 
 
 def _scale_bar_js():
@@ -268,6 +283,7 @@ def _build_css(fonts_dir):
   --sv-line: #DADFE6;
   --sv-accent: #D6472E;
   --sv-accent-dark: #B93A24;
+  --sv-danger: #C62828;
   --sv-ok: #1F8A55;
   font-family: 'SpineUI', 'Helvetica Neue', Arial, sans-serif;
   color: var(--sv-ink);
@@ -323,14 +339,14 @@ def _build_css(fonts_dir):
   color: var(--sv-ink) !important;
   min-height: 24px !important;
 }}
-.sv-app .sv-toggle.sv-no {{
+.sv-app .sv-toggle-no.sv-active {{
   background: var(--sv-ok) !important;
   border-color: var(--sv-ok) !important;
   color: #fff !important;
 }}
-.sv-app .sv-toggle.sv-yes.sv-active {{
-  background: var(--sv-accent) !important;
-  border-color: var(--sv-accent) !important;
+.sv-app .sv-toggle-yes.sv-active {{
+  background: var(--sv-danger) !important;
+  border-color: var(--sv-danger) !important;
   color: #fff !important;
 }}
 
@@ -447,6 +463,7 @@ class SpineValidationDesign:
             morphology_path=morphology_path,
             validation_csv_path=validation_csv_path,
         )
+        self.username = _resolve_username()
         self._silent = False
         self._analysis_visible = True
         self._section_points = {}
@@ -626,6 +643,7 @@ class SpineValidationDesign:
             menu_visibility=False,
             camera_mode='trackball',
             camera_up_axis='y',
+            camera_fov=VIEWPORT_CAMERA_FOV,
             background_color=0xF7F8FA,
             height=560,
         )
@@ -1599,7 +1617,7 @@ class SpineValidationDesign:
             widgets.HTML(value='<div class="sv-field-label" style="margin-top:0">Verification &amp; output</div>'),
             widgets.HBox([self.btn_screenshot, self.btn_toggle_analysis],
                          layout=widgets.Layout(width='100%', gap='6px', margin='0 0 6px')),
-            widgets.HBox([self.btn_register, self.btn_generate_report],
+            widgets.HBox([self.btn_generate_report, self.btn_register],
                          layout=widgets.Layout(width='100%')),
             self.ready_html,
         ], layout=widgets.Layout(width='22%', padding='0 22px'))
@@ -1960,6 +1978,8 @@ class SpineValidationDesign:
         spines_checked = s.total_spines_checked()
         sections_pct = 100.0 * sections_checked / s.total_sections if s.total_sections else 0.0
         spines_pct = 100.0 * spines_checked / s.total_spines if s.total_spines else 0.0
+        neuron_label = html.escape(str(s.neuron_id))
+        username_label = html.escape(self.username)
         logo_html = (
             f'<img class="sv-brand-logo" src="{OBI_LOGO_DATA_URI}" '
             'alt="Open Brain Institute logo">'
@@ -1972,7 +1992,7 @@ class SpineValidationDesign:
             {logo_html}
             <div>
               <span class="sv-header-title">Spine Validation</span>
-              <span class="sv-header-subtitle">Neuron {s.neuron_id}</span>
+              <span class="sv-header-subtitle">Neuron {neuron_label} · {username_label}</span>
             </div>
           </div>
           <div class="sv-stat-group">
@@ -2093,7 +2113,7 @@ class SpineValidationDesign:
             no_btn.remove_class('sv-active')
             if answer == 'yes':
                 yes_btn.add_class('sv-active')
-            elif answer == 'no':
+            else:
                 no_btn.add_class('sv-active')
 
         self.btn_show_structure.description = (
@@ -2228,6 +2248,7 @@ def build_sample_viewport(seed=3, height=420):
         background_color=0xF7F8FA,
         grid_visible=False,
         camera_auto_fit=True,
+        camera_fov=VIEWPORT_CAMERA_FOV,
     )
     plot += k3d.line(backbone, color=0x14171C, width=0.08, shader='mesh')
     plot += k3d.points(

@@ -388,6 +388,7 @@ def validate_spines(morphology_path, mesh_path):
         menu_visibility=False,
         camera_mode='trackball',
         camera_up_axis='y',
+        camera_fov=90.0,
         background_color=0xffffff,
         height=800,
     )

@@ -19,7 +19,7 @@ from morph_spines_visualizer.core import spines as spines_lib
 
 
 ANALYSIS_FIELDS = [
-    ('correct_type', 'Correct type'),
+    ('correct_type', 'Incorrect Type'),
     ('false_positive', 'False positive'),
     ('incomplete_spine', 'Incomplete spine'),
     ('falsely_extended', 'Falsely extended'),
@@ -27,7 +27,7 @@ ANALYSIS_FIELDS = [
     ('split_spine', 'Split spine'),
 ]
 ISSUE_FIELDS = [key for key, _ in ANALYSIS_FIELDS if key != 'correct_type']
-VALID_STRUCTURE_FIELD = ('valid_structure', 'Valid structure')
+VALID_STRUCTURE_FIELD = ('valid_structure', 'Invalid Structure')
 ALL_ANSWER_KEYS = [key for key, _ in ANALYSIS_FIELDS] + [VALID_STRUCTURE_FIELD[0]]
 
 SPINE_TYPES = ['thin', 'stubby', 'mushroom', 'branched', 'filopodia']
