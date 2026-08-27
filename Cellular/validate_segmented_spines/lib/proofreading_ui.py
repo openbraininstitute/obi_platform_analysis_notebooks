@@ -601,7 +601,11 @@ class SpineValidationDesign:
         self.btn_next_section.add_class('sv-nav-next')
         self.btn_show_section_geometry = widgets.Button(
             description='Hide Section Geometry',
-            layout=widgets.Layout(width='100%'),
+            layout=widgets.Layout(
+                width='calc(100% - 4px)',
+                align_self='flex-start',
+                min_width='0',
+            ),
         )
         self.btn_show_section_geometry.add_class('sv-btn')
 
@@ -728,7 +732,7 @@ class SpineValidationDesign:
             camera_up_axis='y',
             camera_fov=VIEWPORT_CAMERA_FOV,
             background_color=0xF7F8FA,
-            height=560,
+            height=600,
         )
         self._section_points = {}
         self._section_radii = {}
@@ -749,7 +753,7 @@ class SpineValidationDesign:
         self._section_point_cloud = None
         morphology = self.state.morphology
         if morphology is None:
-            self.plot = build_sample_viewport(height=560)
+            self.plot = build_sample_viewport(height=600)
             self._install_scale_bar()
             return
 
@@ -800,7 +804,7 @@ class SpineValidationDesign:
 
         subsection_overlay = k3d.line(
             np.zeros((2, 3), dtype=np.float32),
-            width=0.025,
+            width=0.05,
             color=0xFF8C00,
             shader='mesh',
             radial_segments=4,
@@ -913,24 +917,128 @@ class SpineValidationDesign:
         self._section_point_cloud.positions = local_points
         self._section_point_cloud.visible = len(local_points) > 0
 
+    def _camera_aspect_ratio(self):
+        """Return the rendered viewport aspect ratio when it is available."""
+        try:
+            width = float(getattr(self.plot, 'width'))
+            height = float(getattr(self.plot, 'height'))
+        except (AttributeError, TypeError, ValueError):
+            return 1.0
+        if not np.isfinite(width) or not np.isfinite(height) or width <= 0 or height <= 0:
+            return 1.0
+        return width / height
+
+    def _camera_distance_for_points(
+        self, points, center, view_direction, camera_up, fallback_radius
+    ):
+        """Fit finite geometry in the perspective frustum with a small margin."""
+        points = np.asarray(points, dtype=np.float32)
+        center = np.asarray(center, dtype=np.float32)
+        view = np.asarray(view_direction, dtype=np.float32)
+        up = np.asarray(camera_up, dtype=np.float32)
+        if (
+            points.ndim != 2
+            or points.shape[1] != 3
+            or len(points) == 0
+            or center.shape != (3,)
+            or view.shape != (3,)
+            or up.shape != (3,)
+            or not np.all(np.isfinite(points))
+            or not np.all(np.isfinite(center))
+            or not np.all(np.isfinite(view))
+            or not np.all(np.isfinite(up))
+        ):
+            return max(float(fallback_radius), 1e-6) * 1.5
+
+        view_norm = float(np.linalg.norm(view))
+        view = view / view_norm if view_norm > 1e-6 else None
+        if view is None:
+            return max(float(fallback_radius), 1e-6) * 1.5
+        up = up - np.dot(up, view) * view
+        up_norm = float(np.linalg.norm(up))
+        if up_norm <= 1e-6:
+            return max(float(fallback_radius), 1e-6) * 1.5
+        up /= up_norm
+        right = np.cross(-view, up)
+        right_norm = float(np.linalg.norm(right))
+        if right_norm <= 1e-6:
+            return max(float(fallback_radius), 1e-6) * 1.5
+        right /= right_norm
+
+        half_fov = np.deg2rad(VIEWPORT_CAMERA_FOV * 0.5)
+        tan_vertical = float(np.tan(half_fov))
+        tan_horizontal = max(self._camera_aspect_ratio(), 1e-6) * tan_vertical
+        relative = points - center
+        depth_offset = relative @ view
+        vertical_offset = np.abs(relative @ up)
+        horizontal_offset = np.abs(relative @ right)
+        required_distance = max(
+            float(np.max(depth_offset + vertical_offset / tan_vertical)),
+            float(np.max(depth_offset + horizontal_offset / tan_horizontal)),
+        )
+        nearest_depth = float(np.max(depth_offset))
+        near_margin = max(float(fallback_radius) * 0.05, 1e-3)
+        required_distance = max(required_distance, nearest_depth + near_margin)
+        return max(required_distance, 1e-6) * 1.05
+
+    @staticmethod
+    def _finite_focus_points(*point_sets):
+        """Combine finite 3D point sets for camera fitting."""
+        finite_sets = []
+        for points in point_sets:
+            try:
+                points = np.asarray(points, dtype=np.float32)
+            except (TypeError, ValueError):
+                continue
+            if points.ndim == 2 and points.shape[1] == 3 and len(points):
+                points = points[np.all(np.isfinite(points), axis=1)]
+                if len(points):
+                    finite_sets.append(points)
+        return (
+            np.concatenate(finite_sets, axis=0)
+            if finite_sets
+            else np.empty((0, 3), dtype=np.float32)
+        )
+
     def _focus_section(self, section_id):
-        """Focus the camera on a selected morphology centerline."""
+        """Focus the camera on the selected section without clipping geometry."""
         points = self._section_points.get(section_id)
         if points is None or len(points) == 0:
             return
-        bounds_min = points.min(axis=0)
-        bounds_max = points.max(axis=0)
+        focus_points = [points]
+        if (
+            self._selected_section_overlay is not None
+            and self._selected_section_overlay.visible
+        ):
+            focus_points.append(self._selected_section_overlay.vertices)
+        if self._section_point_cloud is not None and self._section_point_cloud.visible:
+            focus_points.append(self._section_point_cloud.positions)
+        focus_points = self._finite_focus_points(*focus_points)
+        if len(focus_points) == 0:
+            return
+        bounds_min = focus_points.min(axis=0)
+        bounds_max = focus_points.max(axis=0)
         center = (bounds_min + bounds_max) * 0.5
         radius = max(float(np.linalg.norm(bounds_max - bounds_min)) * 0.6, 1e-6)
+        view_direction = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+        camera_up = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+        distance = self._camera_distance_for_points(
+            focus_points, center, view_direction, camera_up, radius
+        )
         self.plot.camera_auto_fit = False
-        distance = radius * 1.5
-        self.plot.camera = [
-            float(center[0]), float(center[1]), float(center[2] + distance),
-            float(center[0]), float(center[1]), float(center[2]),
-            0.0, 1.0, 0.0,
-        ]
+        position = center + view_direction * distance
+        self.plot.camera = position.tolist() + center.tolist() + camera_up.tolist()
 
     def _show_selected_section(self, section_id):
+        # The persistent centerline is the complete section path. Recolor it
+        # directly so selection remains visibly red even when tube geometry is
+        # unavailable or is rendered over the line.
+        for centerline_id, centerline in self._section_centerlines.items():
+            color = 0xFF0000 if centerline_id == section_id else 0x888888
+            if centerline.color != color:
+                centerline.color = color
+            centerline.opacity = 1.0
+
         if self._section_terminal_markers is not None:
             try:
                 self.plot -= self._section_terminal_markers
@@ -969,9 +1077,8 @@ class SpineValidationDesign:
             return
         self._selected_section_overlay.vertices = tube_vertices
         self._selected_section_overlay.indices = tube_faces.reshape(-1)
-        self._selected_section_overlay.color = (
-            0x14171C if not self.state.white_background else 0xFF0000
-        )
+        self._selected_section_overlay.color = 0xFF0000
+        self._selected_section_overlay.opacity = 0.3
         self._selected_section_overlay.visible = self._section_geometry_visible
         self._focus_section(section_id)
 
@@ -983,29 +1090,79 @@ class SpineValidationDesign:
         self._selected_section_overlay.visible = self._section_geometry_visible
         self.refresh()
 
-    def _set_camera_oriented(self, center, radius, view_direction):
-        """Focus the camera along a stable axis derived from section geometry."""
+    def _set_camera_oriented(
+        self, center, radius, view_direction, focus_points=None,
+        preferred_up=None,
+    ):
+        """Focus along an axis while fitting the target geometry in view."""
         center = np.asarray(center, dtype=np.float32)
         view = np.asarray(view_direction, dtype=np.float32)
         view_norm = float(np.linalg.norm(view))
-        if center.shape != (3,) or view.shape != (3,) or view_norm <= 1e-6:
+        if (
+            center.shape != (3,)
+            or not np.all(np.isfinite(center))
+            or view.shape != (3,)
+            or not np.all(np.isfinite(view))
+            or view_norm <= 1e-6
+        ):
             self._focus_section(self._selected_section_id())
             return
         view /= view_norm
-        for candidate in np.eye(3, dtype=np.float32)[np.argsort(np.abs(np.eye(3) @ view))]:
+        focus_points = self._finite_focus_points(focus_points)
+        if preferred_up is not None:
+            preferred_up = np.asarray(preferred_up, dtype=np.float32)
+            if (
+                preferred_up.shape != (3,)
+                or not np.all(np.isfinite(preferred_up))
+            ):
+                preferred_up = None
+        candidates = (
+            [preferred_up]
+            if preferred_up is not None
+            else np.eye(3, dtype=np.float32)[
+                np.argsort(np.abs(np.eye(3) @ view))
+            ]
+        )
+        for candidate in candidates:
             up = candidate - np.dot(candidate, view) * view
             up_norm = float(np.linalg.norm(up))
-            if up_norm > 1e-6:
-                up /= up_norm
-                distance = max(float(radius), 1e-6) * 1.5
-                position = center + view * distance
-                self.plot.camera_auto_fit = False
-                self.plot.camera = position.tolist() + center.tolist() + up.tolist()
-                return
+            if up_norm <= 1e-6:
+                continue
+            up /= up_norm
+            distance = (
+                self._camera_distance_for_points(
+                    focus_points, center, view, up, radius
+                )
+                if len(focus_points)
+                else max(float(radius), 1e-6) * 1.5
+            )
+            self.plot.camera_auto_fit = False
+            position = center + view * distance
+            self.plot.camera = position.tolist() + center.tolist() + up.tolist()
+            return
         self._focus_section(self._selected_section_id())
 
+    @staticmethod
+    def _subsection_extent_line(points):
+        """Return the ordered subsection start/end line and its direction."""
+        points = np.asarray(points, dtype=np.float32)
+        if points.ndim != 2 or points.shape[1] != 3:
+            return None
+        points = points[np.all(np.isfinite(points), axis=1)]
+        if len(points) == 0:
+            return None
+        start = points[0]
+        end = points[-1]
+        extent = end - start
+        length = float(np.linalg.norm(extent))
+        if length <= 1e-6:
+            return start, end, start, None, length, points
+        direction = extent / length
+        center = (start + end) * 0.5
+        return start, end, center, direction, length, points
+
     def _focus_subsection(self, section_id, subsection_index):
-        """Focus the camera on the selected 10 micrometre subsection."""
+        """Focus on the subsection start-to-end extent without manual rotation."""
         section = self.state.section
         subsections = section['subsections']
         if not 0 <= subsection_index < len(subsections):
@@ -1015,11 +1172,38 @@ class SpineValidationDesign:
         if points is None or len(points) == 0:
             self._focus_section(section_id)
             return
-        extent = points.max(axis=0) - points.min(axis=0)
-        view_direction = np.zeros(3, dtype=np.float32)
-        view_direction[int(np.argmax(extent))] = 1.0
+        extent_line = self._subsection_extent_line(subsection['points'])
+        if extent_line is None:
+            self._focus_section(section_id)
+            return
+        _start, _end, center, line_direction, _length, focus_points = extent_line
+        if line_direction is None:
+            extent = points.max(axis=0) - points.min(axis=0)
+            view_direction = np.zeros(3, dtype=np.float32)
+            view_direction[int(np.argmax(extent))] = 1.0
+            self._set_camera_oriented(
+                center, subsection['radius'], view_direction,
+                focus_points=focus_points,
+            )
+            return
+
+        reference_axes = np.eye(3, dtype=np.float32)
+        reference_axis = reference_axes[
+            np.argmin(np.abs(reference_axes @ line_direction))
+        ]
+        view_direction = np.cross(line_direction, reference_axis)
+        view_norm = float(np.linalg.norm(view_direction))
+        if view_norm <= 1e-6:
+            self._focus_section(section_id)
+            return
+        view_direction /= view_norm
         self._set_camera_oriented(
-            subsection['center'], subsection['radius'], view_direction
+            center,
+            subsection['radius'],
+            view_direction,
+            focus_points=focus_points,
+            # Keep the subsection direction on the screen's horizontal axis.
+            preferred_up=reference_axis,
         )
 
     def _show_selected_subsection(self, subsection_index, focus_camera=True):
@@ -1037,7 +1221,7 @@ class SpineValidationDesign:
             return
         self._subsection_overlay.vertices = points
         self._subsection_overlay.color = 0xFF8C00
-        self._subsection_overlay.width = 0.025
+        self._subsection_overlay.width = 0.05
         self._subsection_overlay.visible = True
         if focus_camera:
             self._focus_subsection(section_id, subsection_index)
@@ -1258,8 +1442,6 @@ class SpineValidationDesign:
         self._update_spine_bbox(vertices)
         center = (bounds_min + bounds_max) * 0.5
         radius = max(float(np.linalg.norm(bounds_max - bounds_min)) * 0.6, 2.0)
-        # Keep the selected spine close while retaining the existing minimum.
-        distance = radius
         view_direction = np.array([0.0, 0.0, 1.0], dtype=np.float32)
         normal = (
             self._section_spine_normals_by_index[spine_index]
@@ -1267,6 +1449,13 @@ class SpineValidationDesign:
             else None
         )
         camera_up = self._camera_up_from_spine_normal(normal, view_direction)
+        distance = self._camera_distance_for_points(
+            vertices,
+            center,
+            view_direction,
+            np.asarray(camera_up, dtype=np.float32),
+            radius,
+        )
         self.plot.camera_auto_fit = False
         position = center + view_direction * distance
         self.plot.camera = position.tolist() + center.tolist() + camera_up
