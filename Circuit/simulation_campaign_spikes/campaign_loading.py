@@ -93,6 +93,7 @@ def stage_sim_campaign_spikes(client, simulation_campaign_id, output_dir):
         
         if len(simulation_executions) == 0:
             print(f"Warning: No SimulationExecution found for Simulation ID: {simulation.id}")
+            return simulation_spikes_paths
         simulation_execution = simulation_executions[0]
         
         simulation_result_id = simulation_execution.generated[0].id
