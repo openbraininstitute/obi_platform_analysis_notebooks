@@ -8,6 +8,13 @@ from entitysdk.exception import EntitySDKError
 
 
 def download_circuit_connectivity(client, simulation_campaign, output_dir=None):
+    import json
+
+    from tqdm import tqdm
+    from pathlib import Path
+    from entitysdk.models import SimulationCampaign, SimulationResult, SimulationExecution, Circuit
+    from entitysdk.types import AssetLabel
+    from entitysdk.exception import EntitySDKError
     if output_dir is None:
         output_dir = "."
     output_dir = Path(output_dir)
@@ -43,16 +50,16 @@ def download_circuit_connectivity(client, simulation_campaign, output_dir=None):
     )
 
     connectivity_file_dict = {
-        file.suffix: file
+        file.name: file
         for file in connectivity_files
     }
-    assert ".json" in connectivity_file_dict
-    with open(connectivity_file_dict[".json"], "r") as fid:
+    assert "matrix_config.json" in connectivity_file_dict
+    with open(connectivity_file_dict["matrix_config.json"], "r") as fid:
         matrix_file_dict = json.load(fid)
     matrix_files_out = {}
     for _, matrix_files in matrix_file_dict.items():
         for k, v in matrix_files.items():
-            matrix_files_out[v["description"]] = connectivity_file_dict[".json"].parent / v["path"]
+            matrix_files_out[v["description"]] = connectivity_file_dict["matrix_config.json"].parent / v["path"]
 
     return matrix_files_out
 
