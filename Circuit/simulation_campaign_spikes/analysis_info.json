@@ -1,0 +1,22 @@
+{
+    "name": "Load circuit simulation campaign results",
+    "authors": ["OBI", "Michael W. Reimann", "James B. Isbister"],
+    "description": "Notebook for downloading the spiking output of a successfully run simulation campaign. Instead of downloading the entire circuit along with it, only its connectivity matrix is downloaded and loaded using Connectome-Utilities.",
+    "scale": "circuit",
+    "type": "notebook",
+    "kernel": "python",
+    "input": [
+        {
+            "data_type": {
+                "artefact": "SimulationCampaign",
+                "required_properties": []
+            },
+            "class": "single"
+        }
+    ],
+    "requirements": [
+        "bluepysnap>=3.0.2",
+        "obi-auth>=0.3.0",
+        "entitysdk>=0.7.3",
+        "Connectome-Utilities"    ]
+}
