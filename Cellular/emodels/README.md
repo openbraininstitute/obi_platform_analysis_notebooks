@@ -95,6 +95,12 @@ Here is brief introduction of each experiment
     - Currentscape analysis of an e-model
     - For a given stimulus protocol, the underlying ionic currents and concetrations are recorded and relative values are plotted with different colours
 
+- [**`Jaxley L5PC Simulation`**](jaxley_l5pc_simulation/analysis_notebook.ipynb)
+    - Loads a native Jaxley L5PC model.
+    - Applies a configurable current-clamp stimulus.
+    - Plots the soma voltage response.
+    - Extracts electrophysiological features with eFEL.
+
 - [**`Impedance Analysis`**](single_cell_impedance_analysis/analysis_notebook.ipynb)
     - Impedance analysis of an e-model
     - A sinusoidal (chirp/ZAP) subthreshold current stimulus is injected into an e-model
