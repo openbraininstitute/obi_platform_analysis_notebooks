@@ -1,0 +1,25 @@
+{
+    "name": "Display hippocampus single cell simulation results",
+    "authors": ["OBI", "Armando Romani"],
+    "description": "Fetch single cell simulations and compute input-output curve.",
+    "scale": "cellular",
+    "type": "notebook",
+    "kernel": "python",
+    "input": [
+        {
+            "data_type": {
+                "artefact": "SingleCellSimulation",
+                "required_properties": []
+            },
+            "class": "single"
+        }
+    ],
+    "requirements": [
+        "pandas>=2.0.1",
+        "numpy>=1.24.3",
+        "ipywidgets>=8.1.0",
+        "matplotlib>=3.7.1",
+        "entitysdk>=0.7.3",
+        "obi-auth>=0.3.0"
+    ]
+}
