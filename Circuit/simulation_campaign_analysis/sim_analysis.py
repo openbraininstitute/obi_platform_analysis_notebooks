@@ -24,6 +24,7 @@ import re
 import shutil
 import textwrap
 import time
+import warnings
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import lru_cache, partial
@@ -1264,12 +1265,17 @@ def _count_pairs(matrix, block, n, chunk=4_000_000):
 
 
 def pathways(matrix, by):
-    """Connections from each group of neurons (rows) to each group (columns): what matrix.condense(by)
-    counts, without its memory, which for a large circuit is more than the sandbox can spare."""
-    groups = pd.Categorical(matrix.vertices[by].astype(str))
-    counts = _count_pairs(matrix, groups.codes.astype(np.int64), len(groups.categories))
-    return pd.DataFrame(counts, index=pd.Index(groups.categories, name="from"),
-                        columns=pd.Index(groups.categories, name="to"))
+    """Connections from each group of neurons (rows) to each group (columns), counted by
+    matrix.condense(by), with the groups in the order of their names, as in plot_connectivity."""
+    with warnings.catch_warnings():  # condense groups categories with pandas' deprecated default, observed=False
+        warnings.simplefilter("ignore", FutureWarning)
+        condensed = matrix.condense(by)
+    groups = condensed.vertices
+    groups = groups[groups["_idxx_in_original"].map(len) > 0]  # not the categories that no neuron has
+    names = groups[by].astype(str).sort_values(kind="stable")
+    order = names.index.to_numpy()
+    counts = condensed.matrix.tocsr()[order][:, order].toarray()
+    return pd.DataFrame(counts, index=pd.Index(names, name="from"), columns=pd.Index(names, name="to"))
 
 
 def plot_pathways(matrix, by):

@@ -15,7 +15,7 @@
         }
     ],
     "requirements": [
-        "Connectome-Utilities>=0.4.14",
+        "Connectome-Utilities>=0.4.15",
         "entitysdk>=0.19.30",
         "h5py>=3.16.0",
         "httpx2>=2.13.1",
