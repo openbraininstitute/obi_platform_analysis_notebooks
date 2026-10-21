@@ -989,6 +989,8 @@ def describe(scan):
         })
     display(HTML("<b>Simulations</b>"))
     _table(pd.DataFrame(rows))
+    if len(scan.sims) > 1 and not scan.scan_keys:
+        display(HTML("The campaign records no scan parameters, so the simulations are known by their names only."))
     if scan.missing:
         display(HTML(f"No result yet for {_plural(len(scan.missing), 'simulation')}: {', '.join(scan.missing)}"))
     if not scan.sims:
@@ -1288,8 +1290,16 @@ def plot_pathways(matrix, by):
     ax.tick_params(length=0)
     ax.set(xlabel=f"Postsynaptic neurons, by {by}", ylabel=f"Presynaptic neurons, by {by}")
     ax.set_title("Connection probability between groups (white: no connection)")
-    fig.colorbar(image, ax=ax, shrink=0.8, label="connections / pairs of neurons")
+    _colorbar(fig, image, ax, "connections / pairs of neurons")
     plt.show()
+
+
+def _colorbar(fig, image, ax, label):
+    """A colour bar with labels large enough to read."""
+    bar = fig.colorbar(image, ax=ax, shrink=0.8)
+    bar.set_label(label, fontsize=11)
+    bar.ax.tick_params(labelsize=11, which="both")
+    return bar
 
 
 def plot_connectivity(matrix, by, bins=600):
@@ -1307,7 +1317,7 @@ def plot_connectivity(matrix, by, bins=600):
     fig, ax = plt.subplots(figsize=(8.5, 7.5), constrained_layout=True)
     if bins < n:
         image = ax.imshow(density, cmap="magma_r", norm=LogNorm(), extent=(0, n, n, 0), interpolation="nearest")
-        fig.colorbar(image, ax=ax, shrink=0.8, label="fraction of neuron pairs that connect")
+        _colorbar(fig, image, ax, "fraction of neuron pairs that connect")
     else:  # every neuron its own row and column: a dot per connection
         ax.imshow(density, cmap=ListedColormap([INK]), extent=(0, n, n, 0), interpolation="nearest")
     sizes = np.bincount(groups.codes, minlength=len(groups.categories))
@@ -1368,21 +1378,52 @@ def _curves(scan, panels, path=None):
             last = np.argmax(x)
             ax.annotate(_fmt(round(float(values[last]), 1)), (x[last], values[last]), xytext=(8, 0),
                         textcoords="offset points", va="center", color=INK)
-        if layout["log"]:
-            ax.set_xscale("log")
-        ax.set_xticks(layout["ticks"], layout["labels"],
-                      rotation=30 if layout["xlabel"] == "simulation" else 0,
-                      ha="right" if layout["xlabel"] == "simulation" else "center")
-        ax.minorticks_off()
-        ax.set_xlabel(layout["xlabel"])
-        ax.set_ylim(bottom=0)
-        ax.grid(axis="y")
+        _scan_axis(ax, layout)
         ax.set_title(title)
     if layout["series"]:
         fig.legend(*np.atleast_1d(axes)[0].get_legend_handles_labels(), loc="outside right upper")
     if path is not None:
         path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(path, dpi=150)
+    plt.show()
+
+
+def _scan_axis(ax, layout):
+    """The x axis of a summary curve: the scanned parameter, or the simulations one by one."""
+    if layout["log"]:
+        ax.set_xscale("log")
+    ax.set_xticks(layout["ticks"], layout["labels"], rotation=30 if layout["xlabel"] == "simulation" else 0,
+                  ha="right" if layout["xlabel"] == "simulation" else "center")
+    ax.minorticks_off()
+    ax.set_xlabel(layout["xlabel"])
+    ax.set_ylim(bottom=0)
+    ax.grid(axis="y")
+
+
+def _group_curves(scan, lines, title, legend_title):
+    """One value per simulation for several groups of neurons, against the scanned parameter:
+    lines = [(label, colour, values, dashed)]. A scan over two parameters gets a panel per value of
+    the second."""
+    layout = _layout(scan)
+    x = layout["x"]
+    panels = (pd.Series(np.arange(len(x))).groupby(layout["series"], sort=False).indices
+              if layout["series"] else {None: np.arange(len(x))})
+    cols = min(len(panels), 4)
+    rows = -(-len(panels) // cols)
+    fig, axes = plt.subplots(rows, cols, figsize=(7 if cols == 1 else 11, 3.4 if rows == 1 else 2.6 * rows + 0.6),
+                             squeeze=False, sharey=True, constrained_layout=True)
+    for ax, (series, members) in zip(axes.flat, panels.items()):
+        members = members[np.argsort(x[members], kind="stable")]
+        for label, colour, values, dashed in lines:
+            ax.plot(x[members], np.asarray(values, dtype=float)[members], color=colour, lw=1.8,
+                    ls="--" if dashed else "-", marker="o", ms=5, mec=SURFACE, mew=1, clip_on=False, label=label)
+        _scan_axis(ax, layout)
+        ax.set_title(title if series is None else series, fontsize=10 if series is None else 8)
+    for ax in axes.flat[len(panels):]:
+        ax.set_visible(False)
+    if layout["series"]:
+        fig.suptitle(title, x=0.01, ha="left", fontsize=10, color=INK)
+    fig.legend(*axes.flat[0].get_legend_handles_labels(), loc="outside right upper", title=legend_title)
     plt.show()
 
 
@@ -1634,7 +1675,7 @@ def _statistic_options(scan):
     """The statistics of a group of neurons in each simulation, as (label, key)."""
     while_on = _while_on(scan)
     return [("Neurons that fire", "firing"), ("Fraction of the selection that fires (%)", "fraction"),
-            ("Spikes", "spikes"), (f"Mean rate of the neurons that fire{while_on} (Hz)", "rate"),
+            ("Spike count", "spikes"), (f"Mean rate of the neurons that fire{while_on} (Hz)", "rate"),
             (f"Mean rate of all selected neurons{while_on} (Hz)", "rate_all"),
             ("Peak population rate of the neurons that fire (Hz)", "peak"),
             ("Time of the peak population rate (ms)", "peak_time"),
@@ -1683,7 +1724,7 @@ def _statistics_by(scan, codes, n):
 def _per_neuron(scan, key, counts):
     """What a table of neurons shows for the statistic `key`, and its value for each neuron of counts
     (their spike counts, neurons x simulations), one column per simulation. A statistic of a whole
-    group has no value per neuron, so the table shows the spike counts."""
+    group has no value per neuron, so the table shows the spike count."""
     rows = counts.index.to_numpy()
     if key in ("rate", "rate_all"):
         seconds = np.array([scan.stimulus_duration(s) for s in scan.sims]) / 1000
@@ -1691,7 +1732,7 @@ def _per_neuron(scan, key, counts):
     names = {"first": "Time of the first spike (ms)", "isi": "Mean interval between spikes (ms)",
              "cv": "CV of the intervals between spikes"}
     if key not in names:
-        return "Spike counts", counts
+        return "Spike count", counts
     columns = {}
     for sim in scan.sims:
         keep = np.isin(sim.neurons, rows)
@@ -1707,8 +1748,8 @@ def _per_neuron(scan, key, counts):
 
 def statistic_menu(scan):
     """A menu of the statistics of RasterApp.statistics, for group_statistics and neuron_statistics.
-    It starts at the spikes."""
-    return widgets.Dropdown(options=[label for label, _ in _statistic_options(scan)], value="Spikes",
+    It starts at the spike count."""
+    return widgets.Dropdown(options=[label for label, _ in _statistic_options(scan)], value="Spike count",
                             description="Statistic", style=STYLE, layout=widgets.Layout(width="520px"))
 
 
@@ -1895,13 +1936,20 @@ def _slug(text):
 
 
 class RasterApp:
-    """Widgets and plots that all follow one selection of neurons, by property and/or by id."""
+    """Widgets and plots that all follow one selection of neurons, by property and/or by id.
+
+    A campaign of more than AUTO_UPDATE_SPIKES spikes takes long to redraw, so there a change of
+    settings does not redraw the views: each view has an Update button instead, active once its
+    settings have changed. auto_update=True or False overrides this."""
 
     N_FILTERS = 3
+    AUTO_UPDATE_SPIKES = 250_000  # about 6 s to redraw every view of a 25-simulation scan
 
-    def __init__(self, scan, group_by=None):
+    def __init__(self, scan, group_by=None, auto_update=None):
         self.scan = scan
-        self._outputs = {}  # name -> (Output, render, widgets it depends on)
+        self.n_spikes = sum(len(s.times) for s in scan.sims)
+        self.auto_update = self.n_spikes <= self.AUTO_UPDATE_SPIKES if auto_update is None else auto_update
+        self._outputs = {}  # name -> (Output, render, widgets it depends on, Update button)
         self._panels = []
         self._figures = {}
         self._paused = False
@@ -2031,30 +2079,46 @@ class RasterApp:
     # Redrawing ---------------------------------------------------------------------------------
 
     def _register(self, name, render, depends_on):
-        self._outputs[name] = (widgets.Output(), render, set(depends_on))
+        button = widgets.Button(description="Update", icon="refresh", disabled=True,
+                                tooltip="Redraw with the settings chosen above")
+        button.on_click(lambda _: self._draw(name))
+        self._outputs[name] = (widgets.Output(), render, set(depends_on), button)
         self._draw(name)
-        return self._outputs[name][0]
+        if self.auto_update:
+            return self._outputs[name][0]
+        note = widgets.HTML(f"<span style='color:{INK_2}'>With {self.n_spikes:,} spikes, this view redraws when "
+                            "you press Update rather than after every change.</span>")
+        return widgets.VBox([widgets.HBox([button, note]), self._outputs[name][0]])
 
     def _draw(self, name):
-        out, render, _ = self._outputs[name]
+        out, render, _, button = self._outputs[name]
+        button.disabled, button.button_style = True, ""
         with out:
             out.clear_output(wait=True)
             render()
+
+    def _refresh(self, name):
+        """Redraw a view whose settings changed, or, when views redraw on demand, activate its Update button."""
+        if self.auto_update:
+            self._draw(name)
+        else:
+            button = self._outputs[name][3]
+            button.disabled, button.button_style = False, "warning"
 
     def _on_change(self, change):
         if self._paused:
             return
         if change["owner"] in self.selection_widgets or change["owner"] is self.group_by:
             self._refresh_titles()
-        for name, (_, _, depends_on) in self._outputs.items():
+        for name, (_, _, depends_on, _) in self._outputs.items():
             if change["owner"] in depends_on:
-                self._draw(name)
+                self._refresh(name)
 
     def _redraw_selection(self):
         self._refresh_titles()
-        for name, (_, _, depends_on) in self._outputs.items():
+        for name, (_, _, depends_on, _) in self._outputs.items():
             if depends_on & self.selection_widgets:
-                self._draw(name)
+                self._refresh(name)
 
     # Panels ------------------------------------------------------------------------------------
 
@@ -2113,13 +2177,13 @@ class RasterApp:
     def selection_panel(self):
         """The selection controls, in a panel that folds, with the statistics of the selected neurons."""
         return widgets.VBox([self._accordion("selection"), self.statistic, self._register(
-            "selection", self._show_selection, self.selection_widgets | {self.statistic})])
+            "selection", self._show_selection, self.selection_widgets | {self.statistic, self.group_by})])
 
     def statistics(self):
-        """The statistics of the selected neurons, with the menu that picks the one plotted, under a copy
-        of the selection controls. Use it or selection_panel, not both."""
+        """The statistics of the selected neurons, by group, with the menu that picks the one plotted,
+        under a copy of the selection controls. Use it or selection_panel, not both."""
         return widgets.VBox([self._accordion("statistics"), self.statistic, self._register(
-            "selection", self._show_selection, self.selection_widgets | {self.statistic})])
+            "selection", self._show_selection, self.selection_widgets | {self.statistic, self.group_by})])
 
     def overview(self):
         """One raster per simulation, with the selection controls above it."""
@@ -2162,11 +2226,21 @@ class RasterApp:
         display(HTML(text))
         if firing.empty:
             return
+        # The statistic of each group, coloured as in the rasters, and of all the selected neurons
         statistics = self._statistics(selection)
+        codes, bands = self._selection_groups(selection)
+        by_band = _statistics_by(scan, codes, len(bands))
         if len(scan.sims) > 1:
-            _curves(scan, [(statistics[self.statistic.label].to_numpy(), self.statistic.label)])
+            label, key = self.statistic.label, self.statistic.value
+            lines = [(name, colour, by_band[key][i], False) for i, (name, colour) in enumerate(bands)]
+            _group_curves(scan, lines + [("all selected", INK_2, statistics[label].to_numpy(), True)],
+                          label, self.group_by.value)
         else:
-            display(statistics.T.round(2))
+            table = pd.DataFrame({name: [by_band[key][i, 0] for _, key in self.statistic.options]
+                                  for i, (name, _) in enumerate(bands)},
+                                 index=pd.Index([label for label, _ in self.statistic.options], name="statistic"))
+            table["all selected"] = statistics.iloc[0].to_numpy()
+            display(table.round(2))
         # The neurons in the order they start firing across the scan, then by their spikes.
         first_in = pd.Series(np.argmax(firing.to_numpy() > 0, axis=1), index=firing.index)
         totals = firing.sum(axis=1)
@@ -2179,7 +2253,7 @@ class RasterApp:
             table = table.drop(columns="population")
         table.insert(0, "first fires in", [scan.sims[i].label for i in first_in.loc[shown]])
         table = table.join(values)
-        if what == "Spike counts":
+        if what == "Spike count":
             table = table.assign(total=totals.loc[shown])
         table = table.set_index("node_id" if len(scan.offsets) == 1 else ["population", "node_id"])
         display(HTML(f"{what} of {f'the first {len(shown)} of ' if len(ranked) > len(shown) else 'the '}"
@@ -2191,6 +2265,28 @@ class RasterApp:
         values = _statistics_by(self.scan, np.where(selection, 0, -1), 1)
         return pd.DataFrame({label: values[key][0] for label, key in self.statistic.options},
                             index=pd.Index([s.label for s in self.scan.sims], name="simulation"))
+
+    def _selection_groups(self, selection):
+        """The groups of the selected neurons, as in the rasters: the most common values of the Group by
+        property, the other values together, and the stimulated neurons when the stimuli are focal.
+        Each neuron's group (-1 if not selected), and each group's (label, colour)."""
+        scan, prop = self.scan, self.group_by.value
+        values = scan.nodes[prop].to_numpy()
+        top = _scan_ranking(scan, prop, selection, scan.focal)[:len(PALETTE)]
+        codes, bands = np.full(len(values), -1), []
+        for slot, value in enumerate(top):
+            codes[selection & (values == value)] = len(bands)
+            bands.append((_fmt(value), PALETTE[slot]))
+        rest = selection & ~np.isin(values, top)
+        if rest.any():
+            codes[rest] = len(bands)
+            bands.append((f"other ({len(np.unique(values[rest].astype(str)))} values)", OTHER))
+        if scan.focal:
+            driven = selection & np.isin(np.arange(len(values)), scan.stimulated)
+            if driven.any():
+                codes[driven] = len(bands)
+                bands.append(("stimulated neurons", INK))
+        return codes, bands
 
     def _show_overview(self):
         if not self.scan.sims:
