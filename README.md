@@ -37,6 +37,7 @@ The folder has been divided into 3 main subfolders, each corresponding to the le
   - [**adjacency_matrix**](Circuit/adjacency_matrix/analysis_notebook.ipynb): extracts and visualize the connectivity between all pairs of pre- and post-synaptic neurons
   - [**circuit_composition**](Circuit/circuit_composition/analysis_notebook.ipynb): displays the composition of a circuit model with respect to user-selected neuron properties, such as morphological types, electrical types, etc.
   - [**connectivity_matrix**](Circuit/connectivity_matrix/analysis_notebook.ipynb): extracts and visualizes a matrix of connection probabilities or #synapses per connection (mean/std/...), grouped by a selected neuron property (layer, m-type, ...).
+  - [**simulation_campaign_analysis**](Circuit/simulation_campaign_analysis/analysis_notebook.ipynb): loads the spikes of any circuit simulation campaign and explores them: a raster of every simulation, an interactive raster with the stimuli and recorded traces, statistics of selected neurons across the scan, and tables and histograms by group.
   - [**synapse_properties_matrix**](Circuit/synapse_properties_matrix/analysis_notebook.ipynb):  analyse, extract and visualize a matrix of a selected synapse property (conductance, delay, ...), grouped by a selected neuron property (layer, m-type, ...).
 
 

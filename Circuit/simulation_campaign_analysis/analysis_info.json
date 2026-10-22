@@ -1,0 +1,32 @@
+{
+    "name": "Explore a circuit simulation campaign",
+    "authors": ["OBI", "James B. Isbister"],
+    "description": "Loads the spikes of any circuit simulation campaign: point or detailed neurons, one or several node populations, any stimuli, and a scan over any number of parameters. On the platform it links the mounted files rather than downloading them. It shows the neurons and the circuit's connectivity, then the spikes: a raster of every simulation, an interactive raster with the stimuli and recorded traces, statistics of any selection of neurons across the scan, and tables, rasters and histograms by group.",
+    "scale": "circuit",
+    "type": "notebook",
+    "kernel": "python",
+    "input": [
+        {
+            "data_type": {
+                "artefact": "SimulationCampaign",
+                "required_properties": []
+            },
+            "class": "single"
+        }
+    ],
+    "requirements": [
+        "Connectome-Utilities>=0.4.15",
+        "entitysdk>=0.19.30",
+        "h5py>=3.16.0",
+        "httpx2>=2.13.1",
+        "ipykernel>=6.31.0",
+        "ipython>=9.17.1",
+        "ipywidgets>=8.1.9",
+        "libsonata>=0.2.2",
+        "matplotlib>=3.11.2",
+        "numpy>=2.4.6",
+        "obi-auth>=1.2.1",
+        "obi-notebook>=0.5.4",
+        "pandas>=2.3.3,<3"
+    ]
+}
