@@ -4,7 +4,7 @@ Copyright (c) 2025 Open Brain Institute
 
 Authors: Aurélien Jaquier, Open Brain Institute
 
-Last modified: 06.2025
+Last modified: 10.2026
 
 ## Summary
 

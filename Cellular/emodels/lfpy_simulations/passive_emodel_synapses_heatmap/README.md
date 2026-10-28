@@ -4,7 +4,7 @@ Author: Darshan Mandge, Open Brain Institute
 
 Copyright (c) 2025 Open Brain Institute
 
-Last Modified: 06.2025
+Last Modified: 10.2026
 
 ## Summary
 Notebook to apply synapses and using LFPy, recording local field potentials and plotting heatmap
