@@ -3,7 +3,7 @@ Copyright (c) 2025 Open Brain Institute
 
 Author: Darshan Mandge, Open Brain Institute
 
-Last Modified: 06.2025
+Last Modified: 10.2026
 
 ## Summary
 The notebook showcases various properties of detailed morphology cADpyr (continuosly adapting type pyramidal neuron) e-model of the Open Brain Institute(OBI). 

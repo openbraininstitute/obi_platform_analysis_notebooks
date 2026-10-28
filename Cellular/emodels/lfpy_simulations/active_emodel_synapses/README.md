@@ -4,7 +4,7 @@ Copyright (c) 2025 Open Brain Institute
 
 Author: Darshan Mandge, Open Brain Institute
 
-Last Modified: 06.2025
+Last Modified: 10.2026
 
 ## Summary
 In this notebook, we inject a step current in soma of the an e-model and record the local field potentials on a microelectrode array (MEA).

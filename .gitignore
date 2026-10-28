@@ -3,6 +3,9 @@ x86_64/
 arm64/
 **/arm64/
 
+#python caches
+**/__pycache__/
+
 .DS_Store
 
 #venvs
@@ -42,6 +45,11 @@ Cellular/emodels/single_cell_impedance_analysis/figures/
 Cellular/emodels/single_cell_impedance_analysis/hoc/
 Cellular/emodels/single_cell_impedance_analysis/mechanisms/
 Cellular/emodels/single_cell_impedance_analysis/morphology/
+Cellular/emodels/Na_K_recording/simulation_results/
+Cellular/emodels/plot_iv_fi_curve/*/
+Cellular/visualize_and_test_synapse_mapping/downloaded_synaptome/
+**/neuron_mesh.glb
+**/neuron_with_spines.h5
 temp/
 
 **/.ipynb_checkpoints/
